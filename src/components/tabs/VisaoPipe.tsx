@@ -98,22 +98,26 @@ export function VisaoPipe() {
     .filter((r) => r.etapa === "Avaliação de currículo")
     .sort((a, b) => b.candidatos - a.candidatos);
 
-  // volume por nível com marcação de volume atípico (> média + 1,5 desvio)
+  // Quebra por senioridade de cada célula do heatmap, mostrada no tooltip
+  // (era uma tabela separada logo abaixo). ▲ = volume atípico para a etapa:
+  // acima de média + 1,5 desvio entre as combinações chapter × senioridade.
   const porNivel = resumoPipe(nivel, ["chapter", "senioridade", "etapa"]);
-  const nivelCols = STAGES_ORDER.filter((e) => porNivel.some((r) => r.etapa === e));
-  const nivelIdx = new Map(porNivel.map((r) => [`${r.chapter}|${r.senioridade}|${r.etapa}`, r.candidatos]));
-  const nivelRows = [...new Set(porNivel.map((r) => `${r.chapter}|${r.senioridade}`))].sort((a, b) => {
-    const [ca, sa] = a.split("|"), [cb, sb] = b.split("|");
-    return ca.localeCompare(cb) || sens.indexOf(sa) - sens.indexOf(sb);
-  });
   const limiar = new Map(
-    nivelCols.map((e) => {
-      const vs = nivelRows.map((r) => nivelIdx.get(`${r}|${e}`)).filter((v): v is number => v != null);
+    STAGES_ORDER.map((e) => {
+      const vs = porNivel.filter((r) => r.etapa === e).map((r) => r.candidatos);
       const m = vs.reduce((a, b) => a + b, 0) / (vs.length || 1);
       const sd = Math.sqrt(vs.reduce((a, b) => a + (b - m) ** 2, 0) / (vs.length || 1));
       return [e, sd ? m + 1.5 * sd : m * 1.5];
     }),
   );
+  const quebraSen = (chapter: string, etapa: string) =>
+    porNivel
+      .filter((r) => r.chapter === chapter && r.etapa === etapa && r.candidatos > 0)
+      .sort((a, b) => sens.indexOf(a.senioridade!) - sens.indexOf(b.senioridade!))
+      .map((r) => {
+        const alto = r.candidatos >= 5 && r.candidatos > (limiar.get(etapa) ?? Infinity);
+        return `${r.senioridade}: ${fmt0(r.candidatos)}${alto ? "  ▲ acima do normal" : ""}`;
+      });
 
   const etapasParados = STAGES_ORDER.filter((e) => data.parados.some((p) => p.etapa === e));
   const metas = new Map<string, number>();
@@ -277,48 +281,11 @@ export function VisaoPipe() {
         {heatRows.length === 0 ? (
           <Note variant="neutral">Ninguém do Envio do Case em diante neste recorte.</Note>
         ) : (
-          <HeatCandidatos rows={heatRows} cols={heatCols} idx={heatIdx} />
+          <>
+            <HeatCandidatos rows={heatRows} cols={heatCols} idx={heatIdx} quebra={quebraSen} />
+            <Hint>Passe o mouse numa célula para ver quantos são de cada senioridade.</Hint>
+          </>
         )}
-      </div>
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title">Volume por etapa e por nível</div>
-        <p className="card-sub">
-          Mesmo recorte, aberto por chapter × senioridade. <span className="flag-up">▲</span> marca volume bem acima do
-          normal para a etapa.
-        </p>
-        <div className="table-wrap">
-          <table className="t">
-            <thead>
-              <tr>
-                <th>Chapter</th>
-                <th>Senioridade</th>
-                {nivelCols.map((e) => <th key={e} className="r">{e}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {nivelRows.map((r) => {
-                const [c, s] = r.split("|");
-                return (
-                  <tr key={r}>
-                    <td>{c}</td>
-                    <td>{s}</td>
-                    {nivelCols.map((e) => {
-                      const v = nivelIdx.get(`${r}|${e}`);
-                      if (v == null) return <td key={e} className="r" style={{ color: "var(--muted)" }}>—</td>;
-                      const alto = v >= 5 && v > (limiar.get(e) ?? Infinity);
-                      return (
-                        <td key={e} className="r">
-                          {fmt0(v)}{alto && <span className="flag-up"> ▲</span>}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       </div>
 
       <Sec eyebrow="4 · Quem está travado" title="Candidatos parados por etapa" sub={`dias na etapa até a carga de ${dc}`} />
@@ -384,7 +351,14 @@ export function VisaoPipe() {
   }
 }
 
-function HeatCandidatos({ rows, cols, idx }: { rows: string[]; cols: string[]; idx: Map<string, number> }) {
+function HeatCandidatos({
+  rows, cols, idx, quebra,
+}: {
+  rows: string[];
+  cols: string[];
+  idx: Map<string, number>;
+  quebra: (chapter: string, etapa: string) => string[];
+}) {
   const { dark } = useApp();
   return (
     <Heatmap
@@ -393,7 +367,10 @@ function HeatCandidatos({ rows, cols, idx }: { rows: string[]; cols: string[]; i
       cols={cols}
       value={(r, c) => idx.get(`${r}|${c}`)}
       fmt={(v) => fmt0(v)}
-      tip={(r, c, v) => `${r} · ${c}\nCandidatos: ${v == null ? "—" : fmt0(v)}`}
+      tip={(r, c, v) => {
+        const linhas = quebra(r, c);
+        return [`${r} · ${c}`, `Candidatos: ${v == null ? "—" : fmt0(v)}`, ...(linhas.length ? ["", ...linhas] : [])].join("\n");
+      }}
     />
   );
 }
