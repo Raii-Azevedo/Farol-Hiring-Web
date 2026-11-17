@@ -386,6 +386,24 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
 .chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); }
 .chip b { font-variant-numeric: tabular-nums; }
 
+/* ---------- SLA matrix ---------------------------------------------- */
+.sla { display: grid; gap: 4px; overflow-x: auto; font-size: 12.5px; }
+.sla-h { font-size: 11.5px; font-weight: 700; color: var(--ink-2); text-align: center; line-height: 1.25; padding-bottom: 4px; display: flex; flex-direction: column; justify-content: flex-end; }
+.sla-h span { font-weight: 400; color: var(--muted); font-size: 10.5px; margin-top: 2px; }
+.sla-su-h { color: var(--pink); }
+.sla-r { display: flex; align-items: center; font-weight: 500; color: var(--ink-2); padding-right: 8px; white-space: nowrap; }
+.sla-r.sla-total { font-weight: 900; color: var(--ink); }
+.sla-c {
+  height: 38px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--bg-s, var(--surface-2)); color: var(--tx-s, var(--ink)); border: 1px solid transparent;
+}
+.sla-c.sla-total { border-color: var(--c-s, var(--line-strong)); font-weight: 900; }
+.sla-vazio { color: var(--muted); font-weight: 400; }
+.sla-su { background: var(--note-info); color: var(--pink); cursor: pointer; border: 1px solid transparent; font: inherit; font-weight: 700; }
+.sla-su:hover { border-color: var(--pink); }
+.sla-su.sla-total { border-color: var(--pink); font-weight: 900; }
+.sla .sla-total:not(.sla-r) { box-shadow: var(--shadow); }
+
 /* ---------- parados matrix ------------------------------------------ */
 .pm { display: grid; gap: 6px; overflow-x: auto; }
 .pm-th { font-size: 11.5px; font-weight: 700; color: var(--ink-2); text-align: center; line-height: 1.3; padding-bottom: 4px; }

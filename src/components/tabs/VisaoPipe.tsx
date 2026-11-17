@@ -2,17 +2,23 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useApp } from "../App";
-import { Drawer, Finding, Hint, Kpi, Note, Pill, Sec, Select, Table, Tiles } from "../ui";
-import { Funnel, HBars, Heatmap, VBars } from "../charts";
+import { Drawer, Finding, Hint, Kpi, Note, Pill, Sec, Select, Tiles } from "../ui";
+import { Funnel, HBars, Heatmap } from "../charts";
 import {
-  ETAPA_SU, STAGES_ORDER, TODOS, conversaoAteContratacao, dataBR, fmt0, fmt1, ordenarSenioridades, recorte,
-  resumoPipe, sinal, suTempoMedioBanco, sum, taxaAceiteOferta, taxaAceiteSys, type StatusSla,
+  ETAPA_CURTA, STAGES_ORDER, TODOS, conversaoAteContratacao, dataBR, fmt0, fmt1, ordenarSenioridades, recorte,
+  resumoPipe, sinal, suTempoMedioBanco, sum, taxaAceiteOferta, taxaAceiteSys, type PipeResumo, type StatusSla,
 } from "@/lib/model";
 import type { Pessoa } from "@/app/api/pessoas/route";
 
+interface LinhaSla {
+  chapter: string | null; // null = recorte inteiro
+  rotulo: string;
+  cel: Map<string, PipeResumo>;
+  su: number | null;
+}
+
 type Detalhe =
-  | { tipo: "tempo"; etapa: string }
-  | { tipo: "su" }
+  | { tipo: "su"; chapter: string | null }
   | { tipo: "vagas"; etapa: string; status: StatusSla }
   | { tipo: "pessoas"; etapa: string; status: StatusSla; vaga: string };
 
@@ -63,11 +69,26 @@ export function VisaoPipe() {
     );
   }
 
-  const sla = porChEtapa
-    .filter((r) => r.excesso_dias != null)
-    .sort((a, b) => (a.chapter ?? "").localeCompare(b.chapter ?? "") || (a.ordem_etapa ?? 0) - (b.ordem_etapa ?? 0));
+  const sla = porChEtapa.filter((r) => r.excesso_dias != null);
   const pior = [...sla].sort((a, b) => (b.excesso_dias ?? 0) - (a.excesso_dias ?? 0))[0];
   const nSla = (s: string) => sla.filter((r) => r.status_sla === s).length;
+
+  // Matriz de SLA: uma linha por chapter (+ o recorte inteiro, quando há
+  // mais de um), uma coluna por etapa e a espera no See You Soon no fim.
+  const etapasSla = STAGES_ORDER.filter((e) => e !== "Contratação" && porChEtapa.some((r) => r.etapa === e && r.tempo_medio_dias != null));
+  const metaEtapa = new Map(porEtapa.filter((r) => r.meta_sla_dias != null).map((r) => [r.etapa!, r.meta_sla_dias!]));
+  const chSla = [...new Set(porChEtapa.map((r) => r.chapter!))].sort();
+  const linhasSla: LinhaSla[] = [
+    ...(chSla.length > 1
+      ? [{ chapter: null, rotulo: "Recorte inteiro", cel: new Map(porEtapa.map((r) => [r.etapa!, r])), su: k.banco }]
+      : []),
+    ...chSla.map((c) => ({
+      chapter: c,
+      rotulo: c,
+      cel: new Map(porChEtapa.filter((r) => r.chapter === c).map((r) => [r.etapa!, r])),
+      su: suTempoMedioBanco(data.suBanco, c, sen),
+    })),
+  ];
 
   let notaFit = "Ninguém chegou à Entrevista Fit neste recorte.";
   if (k.fit.pct != null) {
@@ -87,8 +108,6 @@ export function VisaoPipe() {
   const conv = etapas.slice(0, -1)
     .map((o, i) => ({ o, d: etapas[i + 1], v: convPor.get(etapas[i + 1]) }))
     .filter((x): x is { o: string; d: string; v: number } => x.v != null);
-
-  const tempos = porEtapa.filter((r) => r.tempo_medio_dias != null);
 
   const etapasHeat = STAGES_ORDER.filter((e) => e !== "Avaliação de currículo" && e !== "Contratação");
   const heatIdx = new Map(porChEtapa.map((r) => [`${r.chapter}|${r.etapa}`, r.candidatos]));
@@ -174,36 +193,33 @@ export function VisaoPipe() {
         </Finding>
       </div>
 
-      <Sec eyebrow="1 · Onde trava" title="Gargalos e SLA" sub="tempo médio de cada etapa contra a meta, por chapter" />
-      <Tiles
-        items={[
-          { n: nSla("critico"), label: "chapter × etapa em crítico", status: "critico" },
-          { n: nSla("atencao"), label: "em atenção", status: "atencao" },
-          { n: nSla("ok"), label: "dentro da meta", status: "ok" },
-        ]}
-      />
-      <div style={{ marginTop: 12 }}>
-        <Table
-          rowKey={(r) => `${r.chapter}${r.etapa}`}
-          rows={sla}
-          cols={[
-            { key: "c", label: "Chapter", render: (r) => r.chapter },
-            { key: "e", label: "Etapa", render: (r) => r.etapa },
-            { key: "t", label: "Tempo médio (dias)", align: "r", help: "Tempo médio corrido que um candidato permanece nesta etapa (média do Greenhouse por vaga).", render: (r) => fmt0(r.tempo_medio_dias!) },
-            { key: "m", label: "Meta (dias)", align: "r", help: "SLA alvo definido para esta etapa.", render: (r) => fmt0(r.meta_sla_dias!) },
-            { key: "x", label: "Excesso (dias)", align: "r", help: "Tempo médio − meta. Negativo = dentro do prazo.", render: (r) => sinal(r.excesso_dias!) },
-            { key: "s", label: "Status", help: "Crítico: excesso > 5 dias · Atenção: até 5 dias · OK: dentro da meta.", render: (r) => <Pill status={r.status_sla!} label={STATUS_PT[r.status_sla!]} /> },
-          ]}
+      <Sec eyebrow="1 · Onde trava" title="Tempo em cada etapa contra a meta" />
+      <div className="card">
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+          <p className="card-sub" style={{ margin: 0, maxWidth: 640 }}>
+            Dias corridos que um candidato fica em cada etapa (média do Greenhouse por vaga, ponderada pelas
+            candidaturas), comparados com a meta da etapa. Na última coluna, a espera no banco See You Soon.
+          </p>
+          <div className="legend-row" style={{ margin: 0 }}>
+            <span><i style={{ background: "var(--red)" }} />{nSla("critico")} crítico</span>
+            <span><i style={{ background: "var(--amber)" }} />{nSla("atencao")} atenção</span>
+            <span><i style={{ background: "var(--green)" }} />{nSla("ok")} dentro da meta</span>
+          </div>
+        </div>
+        <SlaMatriz
+          linhas={linhasSla}
+          etapas={etapasSla}
+          metaEtapa={metaEtapa}
+          onSu={(chapter) => setDet({ tipo: "su", chapter })}
         />
+        <Hint>Passe o mouse numa célula para ver meta e excesso; clique na coluna See You Soon para ver quem está no banco.</Hint>
+        <p className="caption">
+          Atenção: acima da meta · Crítico: mais de 5 dias acima. Uma Oferta longa pode ser negociação demorada ou
+          registro não atualizado no Greenhouse.
+        </p>
       </div>
-      {pior?.status_sla === "critico" && (
-        <Note variant="critical">
-          🔴 <b>Pior gargalo:</b> {pior.etapa} em {pior.chapter}: {fmt0(pior.tempo_medio_dias!)} dias vs. meta de{" "}
-          {fmt0(pior.meta_sla_dias!)} dias.
-        </Note>
-      )}
 
-      <Sec eyebrow="2 · Por que trava" title="Conversão e tempo em cada etapa" />
+      <Sec eyebrow="2 · Por que trava" title="Volume e conversão em cada etapa" />
       <div className="grid g2">
         <div className="card">
           <div className="card-title">Funil de volume a partir do Envio do Case</div>
@@ -227,43 +243,6 @@ export function VisaoPipe() {
             }))}
           />
         </div>
-      </div>
-
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-title">Tempo médio por etapa</div>
-        <p className="card-sub">
-          Dias corridos em cada etapa (média do Greenhouse por vaga, ponderada pelas candidaturas). A barra rosa é o
-          banco See You Soon e não entra na média da Oferta.
-        </p>
-        {tempos.length === 0 && k.banco == null ? (
-          <Note variant="neutral">Sem dado de tempo médio para este recorte.</Note>
-        ) : (
-          <>
-            <VBars
-              height={210}
-              items={[
-                ...tempos.map((r) => ({
-                  label: r.etapa!,
-                  value: r.tempo_medio_dias!,
-                  text: `${fmt0(r.tempo_medio_dias!)}d`,
-                  tip: `${r.etapa}\nTempo médio: ${fmt0(r.tempo_medio_dias!)} dias${r.meta_sla_dias != null ? ` (meta ${fmt0(r.meta_sla_dias)})` : ""}\nClique para ver por chapter`,
-                  onClick: () => setDet({ tipo: "tempo", etapa: r.etapa! }),
-                })),
-                ...(k.banco != null
-                  ? [{
-                      label: ETAPA_SU,
-                      value: Math.round(k.banco),
-                      text: `${fmt0(k.banco)}d`,
-                      color: "var(--pink)",
-                      tip: `${ETAPA_SU}\nEspera média: ${fmt0(k.banco)} dias\nClique para ver quem está no banco`,
-                      onClick: () => setDet({ tipo: "su" }),
-                    }]
-                  : []),
-              ]}
-            />
-            <Hint>Clique em uma barra azul para ver a quebra por chapter, ou na rosa para ver quem está no banco.</Hint>
-          </>
-        )}
       </div>
 
       <Sec eyebrow="3 · Onde está o volume" title="Candidatos vivos por etapa" />
@@ -376,45 +355,78 @@ function HeatCandidatos({
 }
 
 // ---------------------------------------------------------------------------
+// Matriz de SLA: chapter × etapa, célula = tempo médio na cor do status
+// ---------------------------------------------------------------------------
+function SlaMatriz({
+  linhas, etapas, metaEtapa, onSu,
+}: {
+  linhas: LinhaSla[];
+  etapas: string[];
+  metaEtapa: Map<string, number>;
+  onSu: (chapter: string | null) => void;
+}) {
+  const temSu = linhas.some((l) => l.su != null);
+  return (
+    <div className="sla" style={{ gridTemplateColumns: `minmax(150px, 1.3fr) repeat(${etapas.length}, minmax(68px, 1fr))${temSu ? " minmax(84px, 1fr)" : ""}` }}>
+      <div />
+      {etapas.map((e) => (
+        <div className="sla-h" key={e}>
+          {ETAPA_CURTA[e] ?? e}
+          <span>{metaEtapa.has(e) ? `meta ${fmt0(metaEtapa.get(e)!)}d` : " "}</span>
+        </div>
+      ))}
+      {temSu && (
+        <div className="sla-h sla-su-h">
+          See You Soon<span>espera no banco</span>
+        </div>
+      )}
+      {linhas.map((l) => (
+        <Fragment key={l.rotulo}>
+          <div className={`sla-r${l.chapter == null ? " sla-total" : ""}`}>{l.rotulo}</div>
+          {etapas.map((e) => {
+            const c = l.cel.get(e);
+            if (c?.tempo_medio_dias == null) return <div className="sla-c sla-vazio" key={e}>—</div>;
+            const st = c.status_sla;
+            return (
+              <div
+                key={e}
+                className={`sla-c${st ? ` s-${st}` : ""}${l.chapter == null ? " sla-total" : ""}`}
+                data-tip={[
+                  `${l.rotulo} · ${e}`,
+                  `Tempo médio: ${fmt0(c.tempo_medio_dias)} dias`,
+                  c.meta_sla_dias != null ? `Meta: ${fmt0(c.meta_sla_dias)} dias (excesso ${sinal(c.excesso_dias ?? 0)})` : "",
+                  st ? `Status: ${STATUS_PT[st]}` : "",
+                ].filter(Boolean).join("\n")}
+              >
+                {fmt0(c.tempo_medio_dias)}d
+              </div>
+            );
+          })}
+          {temSu &&
+            (l.su == null ? (
+              <div className="sla-c sla-vazio">—</div>
+            ) : (
+              <button
+                className={`sla-c sla-su${l.chapter == null ? " sla-total" : ""}`}
+                onClick={() => onSu(l.chapter)}
+                data-tip={`${l.rotulo} · See You Soon\nEspera média no banco: ${fmt0(l.su)} dias\nClique para ver quem está no banco`}
+              >
+                {fmt0(l.su)}d
+              </button>
+            ))}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Painel de detalhe
 // ---------------------------------------------------------------------------
 function DetalheDrawer({ det, setDet }: { det: Detalhe; setDet: (d: Detalhe | null) => void }) {
   const { data, pipeChapter: ch, pipeSen: sen } = useApp();
   const fechar = () => setDet(null);
   const dc = dataBR(data.dataCarga);
-
-  if (det.tipo === "tempo") {
-    const rows = resumoPipe(recorte(data.pipeNivel.filter((p) => p.etapa === det.etapa), null, sen), ["chapter"])
-      .filter((r) => r.tempo_medio_dias != null)
-      .sort((a, b) => b.tempo_medio_dias! - a.tempo_medio_dias!);
-    const media = rows.length ? sum(rows, (r) => r.tempo_medio_dias) / rows.length : null;
-    return (
-      <Drawer
-        title={det.etapa}
-        sub={`Tempo médio (dias corridos) nesta etapa, por chapter${sen !== TODOS ? ` · senioridade ${sen}` : ""}.`}
-        onClose={fechar}
-      >
-        {rows.length === 0 ? (
-          <Note variant="neutral">Sem dado de tempo para esta etapa.</Note>
-        ) : (
-          <>
-            <p className="caption" style={{ marginTop: 0, marginBottom: 16 }}>
-              Média entre chapters: <b>{fmt0(media!)} dias</b> · mais lento: <b>{rows[0].chapter}</b> · mais rápido:{" "}
-              <b>{rows[rows.length - 1].chapter}</b>
-            </p>
-            <HBars
-              items={rows.map((r) => ({
-                label: r.chapter!,
-                value: r.tempo_medio_dias!,
-                text: `${fmt0(r.tempo_medio_dias!)}d`,
-                color: r.meta_sla_dias != null && r.tempo_medio_dias! > r.meta_sla_dias + 5 ? "var(--red)" : r.meta_sla_dias != null && r.tempo_medio_dias! > r.meta_sla_dias ? "var(--amber)" : undefined,
-              }))}
-            />
-          </>
-        )}
-      </Drawer>
-    );
-  }
 
   if (det.tipo === "vagas") {
     const rows = recorte(data.parados, ch, sen).filter((p) => p.etapa === det.etapa && p.status === det.status);
@@ -448,11 +460,11 @@ function DetalheDrawer({ det, setDet }: { det: Detalhe; setDet: (d: Detalhe | nu
 
   const params =
     det.tipo === "su"
-      ? new URLSearchParams({ tipo: "su", chapter: ch, senioridade: sen })
+      ? new URLSearchParams({ tipo: "su", chapter: det.chapter ?? ch, senioridade: sen })
       : new URLSearchParams({ tipo: "parados", etapa: det.etapa, status: det.status, vaga: det.vaga, chapter: ch, senioridade: sen });
   return (
     <Drawer
-      title={det.tipo === "su" ? "Banco See You Soon" : det.vaga}
+      title={det.tipo === "su" ? `Banco See You Soon${det.chapter ? ` · ${det.chapter}` : ""}` : det.vaga}
       sub={
         det.tipo === "su"
           ? `Quem está aguardando no banco, de quem espera há mais tempo para quem espera há menos. Dias até a carga de ${dc}.`
