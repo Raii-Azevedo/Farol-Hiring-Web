@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useApp } from "../App";
-import { Note, Sec, Select, Table } from "../ui";
+import { CardHead, Note, Sec, Select, Table, tip } from "../ui";
 import { Heatmap, VBars } from "../charts";
 import {
   ETAPA_CURTA, STAGES_ORDER, TODOS, dataBR, fmt0, ordenarSenioridades, recorte, resumoPipe, sum,
@@ -56,19 +56,19 @@ export function Comparacao() {
       <div className="page-head">
         <div>
           <h1>Comparação entre carreiras</h1>
-          <p>Os indicadores da Visão do Pipe lado a lado para todos os chapters. Aqui só vale o filtro de senioridade: a ideia é comparar.</p>
+          <p>Os indicadores do pipe lado a lado, chapter contra chapter.</p>
         </div>
         <div className="filters">
           <Select id="c-sen" label="Senioridade" value={sen} options={[TODOS, ...sens]} onChange={setSen} />
         </div>
       </div>
 
-      <Sec eyebrow="1 · Onde cada carreira demora" title="Tempo médio por etapa, por carreira" />
+      <Sec
+        eyebrow="1 · Onde cada carreira demora"
+        title="Tempo médio por etapa"
+        info={`${Rot}. Dias corridos em cada etapa; mais escuro = mais lento. Passe o mouse para comparar com a meta.`}
+      />
       <div className="card">
-        <p className="card-sub">
-          {Rot}. Dias corridos em cada etapa; mais escuro = mais lento. Metas:{" "}
-          {colsTempo.filter((e) => metas.has(e)).map((e) => `${ETAPA_CURTA[e]} ${fmt0(metas.get(e)!)}d`).join(" · ")}.
-        </p>
         {colsTempo.length === 0 ? (
           <Note variant="neutral">Sem dado de tempo neste recorte.</Note>
         ) : (
@@ -78,16 +78,31 @@ export function Comparacao() {
             cols={colsTempo.map((e) => ETAPA_CURTA[e])}
             value={(r, c) => tempoIdx.get(`${r}|${colsTempo.find((e) => ETAPA_CURTA[e] === c)}`)}
             fmt={(v) => `${fmt0(v)}d`}
-            tip={(r, c, v) => `${r} · ${c}\nTempo médio: ${v == null ? "—" : `${fmt0(v)} dias`}`}
+            tip={(r, c, v) => {
+              const e = colsTempo.find((x) => ETAPA_CURTA[x] === c)!;
+              const meta = metas.get(e);
+              return tip({
+                t: r,
+                s: e,
+                rows: [
+                  { l: "Tempo médio", v: v == null ? "—" : `${fmt0(v)} dias`, c: "var(--bar)", bar: meta && v != null ? Math.min(1, v / meta) : undefined },
+                  ...(meta != null ? [{ l: "Meta", v: `${fmt0(meta)} dias` }] : []),
+                  ...(meta != null && v != null ? [{ l: "Diferença", v: `${v - meta > 0 ? "+" : ""}${fmt0(v - meta)} dias` }] : []),
+                ],
+              });
+            }}
           />
         )}
       </div>
 
       <div className="grid g2" style={{ marginTop: 0 }}>
         <div>
-          <Sec eyebrow="2 · Em quanto tempo contrata" title="Tempo médio de contratação" />
+          <Sec
+            eyebrow="2 · Em quanto tempo contrata"
+            title="Tempo médio de contratação"
+            info={`${Rot}. Dias no pipe das pessoas contratadas, do início do processo à contratação.`}
+          />
           <div className="card">
-            <p className="card-sub">{Rot}. Dias no pipe das pessoas contratadas, do início do processo à contratação.</p>
             {tc.length === 0 ? (
               <Note variant="neutral">Sem contratações com data neste recorte.</Note>
             ) : (
@@ -97,14 +112,18 @@ export function Comparacao() {
                   label: c,
                   value: Math.round(g.d / g.n),
                   text: `${fmt0(g.d / g.n)}d`,
-                  tip: `${c}\nTempo médio: ${fmt0(g.d / g.n)} dias\n${fmt0(g.n)} contratação(ões)`,
+                  tip: tip({ t: c, rows: [{ l: "Tempo médio", v: `${fmt0(g.d / g.n)} dias`, c: "var(--bar)" }, { l: "Contratações", v: fmt0(g.n) }] }),
                 }))}
               />
             )}
           </div>
         </div>
         <div>
-          <Sec eyebrow="3 · Onde está travado agora" title="Candidatos parados" />
+          <Sec
+            eyebrow="3 · Onde está travado agora"
+            title="Candidatos parados"
+            info={`Dias na etapa até a carga de ${dataBR(data.dataCarga)}. Acima da meta = atenção; mais de 5 dias acima = crítico. Total em processo: ${fmt0(sum(par, (r) => r.total))}.`}
+          />
           {par.length === 0 ? (
             <Note variant="neutral">Ninguém em processo do Envio do Case em diante neste recorte.</Note>
           ) : (
@@ -130,26 +149,23 @@ export function Comparacao() {
               ]}
             />
           )}
-          <p className="caption">Dias na etapa até a carga de {dataBR(data.dataCarga)}. Acima da meta = atenção; mais de 5 dias acima = crítico.</p>
         </div>
       </div>
 
       <Sec eyebrow="4 · Fim do funil" title="Oferta e banco See You Soon" />
       <div className="grid g2">
         <div className="card">
-          <div className="card-title">Oferta → contratação, por carreira</div>
-          <p className="card-sub">Contratados ÷ (contratados + reprovados na etapa Oferta), {rotSen}.</p>
+          <CardHead title="Oferta → contratação" info={`Contratados ÷ (contratados + reprovados na etapa Oferta), ${rotSen}.`} />
           <VBars
             height={180}
             items={chAceite.map((c) => {
               const v = taxaAceiteOferta(data.taxas, c, sen);
-              return { label: c, value: v ?? 0, text: v == null ? "—" : `${fmt0(v)}%`, tip: `${c}\nAceite: ${v == null ? "—" : `${fmt0(v)}%`}` };
+              return { label: c, value: v ?? 0, text: v == null ? "—" : `${fmt0(v)}%`, tip: tip({ t: c, rows: [{ l: "Aceite de oferta", v: v == null ? "—" : `${fmt0(v)}%`, c: "var(--bar)", bar: v == null ? undefined : v / 100 }] }) };
             })}
           />
         </div>
         <div className="card">
-          <div className="card-title">See You Soon → contratação, por carreira</div>
-          <p className="card-sub">% das pessoas que passaram pelo banco e aceitaram oferta, {rotSen}.</p>
+          <CardHead title="See You Soon → contratação" info={`% das pessoas que passaram pelo banco e aceitaram oferta, ${rotSen}.`} />
           {chSys.length === 0 ? (
             <Note variant="neutral">Sem dado do banco See You Soon.</Note>
           ) : (
@@ -157,13 +173,12 @@ export function Comparacao() {
               height={180}
               items={chSys.map((c) => {
                 const v = taxaAceiteSys(data.suOfertas, c, sen);
-                return { label: c, value: v ?? 0, text: v == null ? "—" : `${fmt0(v)}%`, color: "var(--pink)", tip: `${c}\nConversão do banco: ${v == null ? "—" : `${fmt0(v)}%`}` };
+                return { label: c, value: v ?? 0, text: v == null ? "—" : `${fmt0(v)}%`, color: "var(--pink)", tip: tip({ t: c, rows: [{ l: "Conversão do banco", v: v == null ? "—" : `${fmt0(v)}%`, c: "var(--pink)", bar: v == null ? undefined : v / 100 }] }) };
               })}
             />
           )}
         </div>
       </div>
-      <p className="caption">Total de pessoas em processo: {fmt0(sum(par, (r) => r.total))}.</p>
     </>
   );
 }

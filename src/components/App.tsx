@@ -5,7 +5,7 @@ import type { Dashboard } from "@/lib/model";
 import { TODOS, dataBR, rotuloMes } from "@/lib/model";
 import type { Usuario } from "@/lib/acesso";
 import { sair } from "@/app/actions";
-import { Note, Toast, TooltipLayer } from "./ui";
+import { InfoTip, Note, Toast, TooltipLayer } from "./ui";
 import { Gerencial } from "./tabs/Gerencial";
 import { FarolExecutivo } from "./tabs/FarolExecutivo";
 import { VisaoPipe } from "./tabs/VisaoPipe";
@@ -74,6 +74,16 @@ export function App({ data, usuario }: { data: Dashboard; usuario: Usuario }) {
     setDark(!dark);
   };
 
+  const ini = rotuloMes(data.meses[0] ?? data.mesSnapshot);
+  const fim = rotuloMes(data.meses[data.meses.length - 1] ?? data.mesSnapshot);
+  const sobreDados =
+    `Dados oficiais do BigQuery (Greenhouse + Artefactory). Pipe: foto de ${rotuloMes(data.mesSnapshot)}; ` +
+    `nenhuma view do Greenhouse tem data, então o funil não tem histórico. Demanda: forecast de ${ini} a ${fim} ` +
+    `(o Artefactory projeta até ${rotuloMes(data.fimForecast)}, mas demanda tão distante não ajuda a decidir agora).` +
+    (data.chaptersSemDemanda.length
+      ? ` Sem demanda cadastrada: ${data.chaptersSemDemanda.join(", ")}; aparecem no funil, mas não têm farol.`
+      : "");
+
   const iniciais = usuario.name.split(/\s+/).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
   return (
@@ -90,8 +100,8 @@ export function App({ data, usuario }: { data: Dashboard; usuario: Usuario }) {
           </div>
           <div className="top-actions">
             <div className="data-badge">
+              <span className="live" />
               <span>Pipe de <b>{dataBR(data.dataCarga)}</b></span>
-              <span>Greenhouse + Artefactory</span>
             </div>
             <button className="icon-btn" onClick={alternarTema} aria-label="Alternar tema claro/escuro" title="Alternar tema">
               {dark ? "☀" : "☾"}
@@ -110,18 +120,24 @@ export function App({ data, usuario }: { data: Dashboard; usuario: Usuario }) {
       </header>
 
       <nav className="tabs-bar" aria-label="Seções">
-        <div className="wrap tabs" role="tablist">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              className="tab"
-              aria-selected={tab === t.id}
-              onClick={() => irPara(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="wrap tabs-row">
+          <div className="tabs" role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                className="tab"
+                aria-selected={tab === t.id}
+                onClick={() => irPara(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <span className="tabs-info">
+            Sobre os dados
+            <InfoTip title="Sobre os dados" text={sobreDados} />
+          </span>
         </div>
       </nav>
 
@@ -132,15 +148,6 @@ export function App({ data, usuario }: { data: Dashboard; usuario: Usuario }) {
             só permitido em desenvolvimento local. Em produção o app bloqueia o acesso.
           </Note>
         )}
-        <Note variant="neutral">
-          Dados oficiais do BigQuery. Pipe: foto de <b>{rotuloMes(data.mesSnapshot)}</b>; nenhuma view do Greenhouse
-          tem data, então o funil não tem histórico. Demanda: forecast de <b>{rotuloMes(data.meses[0] ?? data.mesSnapshot)}</b> a{" "}
-          <b>{rotuloMes(data.meses[data.meses.length - 1] ?? data.mesSnapshot)}</b> (o Artefactory projeta até{" "}
-          {rotuloMes(data.fimForecast)}, mas comparar o pipe de hoje com demanda tão distante não ajuda a decidir agora).
-          {data.chaptersSemDemanda.length > 0 && (
-            <> Sem demanda cadastrada: <b>{data.chaptersSemDemanda.join(", ")}</b>; aparecem no funil, mas não têm farol.</>
-          )}
-        </Note>
 
         <div key={tab} className="fade-in">
           {tab === "gerencial" && <Gerencial />}

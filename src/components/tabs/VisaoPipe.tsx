@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useApp } from "../App";
-import { Drawer, Finding, Hint, Kpi, Note, Pill, Sec, Select, Tiles } from "../ui";
+import { CardHead, Drawer, Finding, InfoTip, Kpi, Note, Pill, Sec, Select, Tiles, tip, type TipData } from "../ui";
 import { Funnel, HBars, Heatmap } from "../charts";
 import {
   ETAPA_CURTA, STAGES_ORDER, TODOS, conversaoAteContratacao, dataBR, fmt0, fmt1, ordenarSenioridades, recorte,
@@ -23,6 +23,7 @@ type Detalhe =
   | { tipo: "pessoas"; etapa: string; status: StatusSla; vaga: string };
 
 const STATUS_PT: Record<string, string> = { critico: "Crítico", atencao: "Atenção", ok: "OK" };
+const COR_SLA: Record<string, string> = { critico: "var(--red)", atencao: "var(--amber)", ok: "var(--green)" };
 
 export function VisaoPipe() {
   const { data, pipeChapter: ch, pipeSen: sen, setPipe } = useApp();
@@ -135,7 +136,7 @@ export function VisaoPipe() {
       .sort((a, b) => sens.indexOf(a.senioridade!) - sens.indexOf(b.senioridade!))
       .map((r) => {
         const alto = r.candidatos >= 5 && r.candidatos > (limiar.get(etapa) ?? Infinity);
-        return `${r.senioridade}: ${fmt0(r.candidatos)}${alto ? "  ▲ acima do normal" : ""}`;
+        return { sen: r.senioridade!, n: r.candidatos, alto };
       });
 
   const etapasParados = STAGES_ORDER.filter((e) => data.parados.some((p) => p.etapa === e));
@@ -149,35 +150,46 @@ export function VisaoPipe() {
       <div className="page-head">
         <div>
           <h1>Visão do Pipe</h1>
-          <p>Conversão, tempo por etapa, distribuição de candidatos e gargalos do funil no Greenhouse.</p>
+          <p>Onde o funil trava, por quê, e quem está parado.</p>
           <div className="meta-row">
-            <span className="meta-pill"><span className="dot" style={{ background: "var(--bar)" }} />Pipe: foto de {dc}</span>
-            <span className="meta-pill">Os filtros valem para a aba inteira</span>
+            <span className="meta-pill" data-tip={tip({ t: "Pipe", n: "Foto do Greenhouse na data da última carga. Os filtros valem para a aba inteira." })}>
+              <span className="dot" style={{ background: "var(--bar)" }} />Pipe: {dc}
+            </span>
           </div>
         </div>
         {filtros()}
       </div>
 
       <div className="grid g4">
-        <Kpi label="Entrevista Fit → contratação" value={k.fit.pct == null ? "—" : `${fmt1(k.fit.pct)}%`} note={notaFit} />
+        <Kpi
+          label="Entrevista Fit → contratação"
+          value={k.fit.pct == null ? "—" : `${fmt1(k.fit.pct)}%`}
+          info={`${notaFit} Conversões no histórico inteiro do Greenhouse.`}
+          detail={k.fit.pct != null ? <><b>{fmt0(k.fit.contratados)}</b> de <b>{fmt0(k.fit.base)}</b></> : undefined}
+        />
         <Kpi
           label="Oferta → contratação"
           value={k.aceite == null ? "—" : `${fmt0(k.aceite)}%`}
-          note={`${fmt0(k.contratados)} contratados de ${fmt0(k.decididas)} com a oferta já decidida. Quem ainda está em Oferta fica fora.`}
+          progress={k.aceite}
+          info="Contratados ÷ ofertas já decididas. Quem ainda está em Oferta fica fora."
+          detail={<><b>{fmt0(k.contratados)}</b> de <b>{fmt0(k.decididas)}</b> decididas</>}
         />
         <Kpi
           label="See You Soon → contratação"
           value={k.sys == null ? "—" : `${fmt0(k.sys)}%`}
-          note={`${fmt0(k.nSuAc)} de ${fmt0(k.nSu)} pessoas que passaram pelo banco aceitaram uma oferta.`}
+          progress={k.sys}
+          info="Pessoas que passaram pelo banco See You Soon e aceitaram uma oferta."
+          detail={<><b>{fmt0(k.nSuAc)}</b> de <b>{fmt0(k.nSu)}</b> pessoas</>}
         />
         <Kpi
           label="Espera no See You Soon"
           value={k.banco == null ? "—" : fmt0(k.banco)}
           unit="dias"
-          note="Média de dias no banco de quem aguarda hoje, cada um desde a data em que entrou."
+          info="Média de dias no banco de quem aguarda hoje, cada um desde a data em que entrou. Clique para ver quem está no banco."
+          detail="Ver quem está no banco ↗"
+          onClick={k.banco == null ? undefined : () => setDet({ tipo: "su", chapter: ch === TODOS ? null : ch })}
         />
       </div>
-      <p className="caption">Recorte: <b>{rotulo}</b> · conversões no histórico inteiro do Greenhouse.</p>
 
       <div style={{ marginTop: 16 }}>
         <Finding>
@@ -193,13 +205,13 @@ export function VisaoPipe() {
         </Finding>
       </div>
 
-      <Sec eyebrow="1 · Onde trava" title="Tempo em cada etapa contra a meta" />
+      <Sec
+        eyebrow="1 · Onde trava"
+        title="Tempo em cada etapa contra a meta"
+        info="Dias corridos em cada etapa (média do Greenhouse por vaga, ponderada pelas candidaturas) contra a meta. Atenção: acima da meta · Crítico: mais de 5 dias acima. Uma Oferta longa pode ser negociação demorada ou registro não atualizado. Clique na coluna See You Soon para ver quem está no banco."
+      />
       <div className="card">
-        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
-          <p className="card-sub" style={{ margin: 0, maxWidth: 640 }}>
-            Dias corridos que um candidato fica em cada etapa (média do Greenhouse por vaga, ponderada pelas
-            candidaturas), comparados com a meta da etapa. Na última coluna, a espera no banco See You Soon.
-          </p>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
           <div className="legend-row" style={{ margin: 0 }}>
             <span><i style={{ background: "var(--red)" }} />{nSla("critico")} crítico</span>
             <span><i style={{ background: "var(--amber)" }} />{nSla("atencao")} atenção</span>
@@ -212,26 +224,22 @@ export function VisaoPipe() {
           metaEtapa={metaEtapa}
           onSu={(chapter) => setDet({ tipo: "su", chapter })}
         />
-        <Hint>Passe o mouse numa célula para ver meta e excesso; clique na coluna See You Soon para ver quem está no banco.</Hint>
-        <p className="caption">
-          Atenção: acima da meta · Crítico: mais de 5 dias acima. Uma Oferta longa pode ser negociação demorada ou
-          registro não atualizado no Greenhouse.
-        </p>
       </div>
 
       <Sec eyebrow="2 · Por que trava" title="Volume e conversão em cada etapa" />
       <div className="grid g2">
         <div className="card">
-          <div className="card-title">Funil de volume a partir do Envio do Case</div>
-          <p className="card-sub">
-            Candidatos em processo hoje. A triagem de currículo ({fmt0(nCv)} hoje) fica fora para não achatar as outras
-            etapas; as contratações ({fmt0(k.fit.contratados)} no histórico) estão no card acima.
-          </p>
-          <Funnel items={funil.map((r) => ({ label: r.etapa!, value: r.candidatos, text: fmt0(r.candidatos), tip: `${r.etapa}\nCandidatos: ${fmt0(r.candidatos)}` }))} />
+          <CardHead
+            title="Funil a partir do Envio do Case"
+            info={`Candidatos em processo hoje. A triagem de currículo (${fmt0(nCv)} hoje) fica fora para não achatar as outras etapas; as contratações (${fmt0(k.fit.contratados)} no histórico) estão no card acima.`}
+          />
+          <Funnel items={funil.map((r) => ({ label: r.etapa!, value: r.candidatos, text: fmt0(r.candidatos), tip: tip({ t: r.etapa!, rows: [{ l: "Candidatos hoje", v: fmt0(r.candidatos), c: "var(--bar)" }] }) }))} />
         </div>
         <div className="card">
-          <div className="card-title">Quanto avança a partir de cada etapa</div>
-          <p className="card-sub">De cada 100 que estavam na etapa, quantos foram para a seguinte. Taxa do Greenhouse, teto de 100% por vaga.</p>
+          <CardHead
+            title="Quanto avança de cada etapa"
+            info="De cada 100 que estavam na etapa, quantos foram para a seguinte. Taxa do Greenhouse, teto de 100% por vaga."
+          />
           <HBars
             max={100}
             items={conv.map((x) => ({
@@ -239,7 +247,7 @@ export function VisaoPipe() {
               label: `${x.o} → ${x.d}`,
               value: x.v,
               text: `${fmt0(x.v)}%`,
-              tip: `${x.o} → ${x.d}\n${fmt0(x.v)}% de quem estava na etapa avançou`,
+              tip: tip({ t: x.o, s: `→ ${x.d}`, rows: [{ l: "Avançou", v: `${fmt0(x.v)}%`, bar: x.v / 100, c: "var(--bar)" }] }),
             }))}
           />
         </div>
@@ -247,11 +255,16 @@ export function VisaoPipe() {
 
       <Sec eyebrow="3 · Onde está o volume" title="Candidatos vivos por etapa" />
       <div className="card">
-        <div className="card-title">Candidatos por etapa × chapter</div>
-        <p className="card-sub">Do Envio do Case até a Oferta. Mais escuro = mais gente aguardando ali.</p>
+        <CardHead
+          title="Candidatos por etapa × chapter"
+          info="Do Envio do Case até a Oferta. Mais escuro = mais gente aguardando ali. Passe o mouse numa célula para ver a quebra por senioridade; ▲ marca volume acima do normal para a etapa."
+        />
         {triagem.length > 0 && (
-          <div className="chips" style={{ marginBottom: 14 }}>
-            <span className="sec-eyebrow" style={{ marginRight: 4 }}>Triagem de currículo · monitoramento</span>
+          <div className="chips" style={{ marginBottom: 16 }}>
+            <span className="chips-lbl">
+              Triagem de currículo
+              <InfoTip text="Fica fora do mapa para não achatar as outras etapas. Só monitoramento." />
+            </span>
             {triagem.map((t) => (
               <span className="chip" key={t.chapter}>{t.chapter} <b>{fmt0(t.candidatos)}</b></span>
             ))}
@@ -260,14 +273,15 @@ export function VisaoPipe() {
         {heatRows.length === 0 ? (
           <Note variant="neutral">Ninguém do Envio do Case em diante neste recorte.</Note>
         ) : (
-          <>
-            <HeatCandidatos rows={heatRows} cols={heatCols} idx={heatIdx} quebra={quebraSen} />
-            <Hint>Passe o mouse numa célula para ver quantos são de cada senioridade.</Hint>
-          </>
+          <HeatCandidatos rows={heatRows} cols={heatCols} idx={heatIdx} quebra={quebraSen} />
         )}
       </div>
 
-      <Sec eyebrow="4 · Quem está travado" title="Candidatos parados por etapa" sub={`dias na etapa até a carga de ${dc}`} />
+      <Sec
+        eyebrow="4 · Quem está travado"
+        title="Candidatos parados por etapa"
+        info={`Dias na etapa até a carga de ${dc}. Clique num número para ver as vagas e quem está parado. Antes de agir, confira no Greenhouse: etapa desatualizada (ex.: pessoa já contratada ainda em Conversa Final) aparece aqui como parada.`}
+      />
       <Tiles
         items={[
           { n: fmt0(nPar("critico")), label: "candidatos em crítico", status: "critico" },
@@ -282,9 +296,12 @@ export function VisaoPipe() {
           <div className="pm" style={{ gridTemplateColumns: `110px repeat(${etapasParados.length}, minmax(86px, 1fr))` }}>
             <div />
             {etapasParados.map((e) => (
-              <div className="pm-th" key={e}>
-                {e}
-                {metas.has(e) && <span>Meta {fmt0(metas.get(e)!)}d · crítico &gt;{fmt0(metas.get(e)! + 5)}d</span>}
+              <div
+                className="pm-th"
+                key={e}
+                data-tip={metas.has(e) ? tip({ t: e, rows: [{ l: "Meta", v: `${fmt0(metas.get(e)!)} dias` }, { l: "Crítico", v: `> ${fmt0(metas.get(e)! + 5)} dias`, c: "var(--red)" }] }) : undefined}
+              >
+                {ETAPA_CURTA[e] ?? e}
               </div>
             ))}
             {(["atencao", "critico"] as const).map((s) => (
@@ -297,7 +314,7 @@ export function VisaoPipe() {
                       key={e}
                       className={`pm-cell s-${s}`}
                       onClick={() => setDet({ tipo: "vagas", etapa: e, status: s })}
-                      data-tip={`${q} em ${STATUS_PT[s].toLowerCase()} na etapa ${e}\nClique para ver as vagas`}
+                      data-tip={tip({ t: `${e} · ${STATUS_PT[s]}`, rows: [{ l: "Candidatos", v: fmt0(q), c: s === "critico" ? "var(--red)" : "var(--amber)" }], n: "Clique para ver as vagas" })}
                     >
                       {fmt0(q)}
                     </button>
@@ -308,11 +325,6 @@ export function VisaoPipe() {
               </Fragment>
             ))}
           </div>
-          <Hint>Clique em um número para ver as vagas e quem está parado, com os dias de cada um na etapa.</Hint>
-          <p className="caption">
-            Antes de agir, confira no Greenhouse: etapa desatualizada (ex.: pessoa já contratada ainda em Conversa
-            Final) aparece aqui como parada.
-          </p>
         </div>
       )}
 
@@ -330,15 +342,18 @@ export function VisaoPipe() {
   }
 }
 
+interface Quebra { sen: string; n: number; alto: boolean }
+
 function HeatCandidatos({
   rows, cols, idx, quebra,
 }: {
   rows: string[];
   cols: string[];
   idx: Map<string, number>;
-  quebra: (chapter: string, etapa: string) => string[];
+  quebra: (chapter: string, etapa: string) => Quebra[];
 }) {
   const { dark } = useApp();
+  const max = Math.max(1, ...rows.flatMap((r) => cols.map((c) => idx.get(`${r}|${c}`) ?? 0)));
   return (
     <Heatmap
       dark={dark}
@@ -347,8 +362,25 @@ function HeatCandidatos({
       value={(r, c) => idx.get(`${r}|${c}`)}
       fmt={(v) => fmt0(v)}
       tip={(r, c, v) => {
-        const linhas = quebra(r, c);
-        return [`${r} · ${c}`, `Candidatos: ${v == null ? "—" : fmt0(v)}`, ...(linhas.length ? ["", ...linhas] : [])].join("\n");
+        const q = quebra(r, c);
+        const total = v ?? 0;
+        const d: TipData = {
+          t: r,
+          s: c,
+          rows: [
+            { l: "Candidatos", v: v == null ? "—" : fmt0(v), bar: total / max, c: "var(--pink)" },
+            ...(q.length ? [{ l: "—", v: "" }] : []),
+            ...q.map((x) => ({
+              l: x.sen,
+              v: fmt0(x.n),
+              bar: total ? x.n / total : 0,
+              c: x.alto ? "var(--pink)" : "var(--bar)",
+              flag: x.alto ? "▲" : undefined,
+            })),
+          ],
+          n: q.some((x) => x.alto) ? "▲ volume acima do normal para a etapa" : undefined,
+        };
+        return tip(d);
       }}
     />
   );
@@ -377,7 +409,7 @@ function SlaMatriz({
       ))}
       {temSu && (
         <div className="sla-h sla-su-h">
-          See You Soon<span>espera no banco</span>
+          See You Soon<span>espera</span>
         </div>
       )}
       {linhas.map((l) => (
@@ -391,12 +423,21 @@ function SlaMatriz({
               <div
                 key={e}
                 className={`sla-c${st ? ` s-${st}` : ""}${l.chapter == null ? " sla-total" : ""}`}
-                data-tip={[
-                  `${l.rotulo} · ${e}`,
-                  `Tempo médio: ${fmt0(c.tempo_medio_dias)} dias`,
-                  c.meta_sla_dias != null ? `Meta: ${fmt0(c.meta_sla_dias)} dias (excesso ${sinal(c.excesso_dias ?? 0)})` : "",
-                  st ? `Status: ${STATUS_PT[st]}` : "",
-                ].filter(Boolean).join("\n")}
+data-tip={tip({
+                  t: l.rotulo,
+                  s: st ? `${e} · ${STATUS_PT[st]}` : e,
+                  rows: [
+                    {
+                      l: "Tempo médio",
+                      v: `${fmt0(c.tempo_medio_dias)} dias`,
+                      c: COR_SLA[st ?? ""] ?? "var(--bar)",
+                      bar: c.meta_sla_dias ? Math.min(1, c.tempo_medio_dias / c.meta_sla_dias) : undefined,
+                    },
+                    ...(c.meta_sla_dias != null
+                      ? [{ l: "Meta", v: `${fmt0(c.meta_sla_dias)} dias` }, { l: "Excesso", v: `${sinal(c.excesso_dias ?? 0)} dias` }]
+                      : []),
+                  ],
+                })}
               >
                 {fmt0(c.tempo_medio_dias)}d
               </div>
@@ -409,7 +450,7 @@ function SlaMatriz({
               <button
                 className={`sla-c sla-su${l.chapter == null ? " sla-total" : ""}`}
                 onClick={() => onSu(l.chapter)}
-                data-tip={`${l.rotulo} · See You Soon\nEspera média no banco: ${fmt0(l.su)} dias\nClique para ver quem está no banco`}
+                data-tip={tip({ t: l.rotulo, s: "See You Soon", rows: [{ l: "Espera média no banco", v: `${fmt0(l.su)} dias`, c: "var(--pink)" }], n: "Clique para ver quem está no banco" })}
               >
                 {fmt0(l.su)}d
               </button>

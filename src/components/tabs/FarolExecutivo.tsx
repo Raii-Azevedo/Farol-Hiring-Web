@@ -2,9 +2,9 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useApp } from "../App";
-import { Finding, Note, Pill, Sec, Seg, Table } from "../ui";
+import { InfoTip, Finding, Note, Pill, Sec, Seg, tip } from "../ui";
 import {
-  type FarolPico, SENIORIDADES_FAROL, STATUS_LABEL, dataBR, farolInsight, fmt0, gapTexto, janelaTxt, listaPt,
+  type FarolPico, SENIORIDADES_FAROL, dataBR, farolInsight, fmt0, gapTexto, janelaTxt, listaPt,
   pipeQualificado, rotuloMes, sinal, sum,
 } from "@/lib/model";
 
@@ -45,13 +45,14 @@ export function FarolExecutivo() {
       <div className="page-head">
         <div>
           <h1>Farol de Contratação</h1>
-          <p>
-            Cruza a demanda líquida de projetos (Artefactory) com a oferta ajustada do funil (Greenhouse) e traduz isso
-            em um semáforo por chapter e senioridade.
-          </p>
+          <p>Demanda líquida de projetos contra a oferta do funil, em um semáforo por chapter e senioridade.</p>
           <div className="meta-row">
-            <span className="meta-pill"><span className="dot" style={{ background: "var(--pink)" }} />Demanda: pico dos {J}, cobre {listaPt(data.mesesJanela.map(rotuloMes))}</span>
-            <span className="meta-pill"><span className="dot" style={{ background: "var(--bar)" }} />Pipe: foto de {dataBR(data.dataCarga)}</span>
+            <span className="meta-pill" data-tip={tip({ t: "Janela de demanda", n: `Pico dos ${J}, cobrindo ${listaPt(data.mesesJanela.map(rotuloMes))}.` })}>
+              <span className="dot" style={{ background: "var(--pink)" }} />Demanda: {J}
+            </span>
+            <span className="meta-pill" data-tip={tip({ t: "Pipe", n: "Foto do Greenhouse na data da última carga." })}>
+              <span className="dot" style={{ background: "var(--bar)" }} />Pipe: {dataBR(data.dataCarga)}
+            </span>
           </div>
         </div>
       </div>
@@ -69,13 +70,16 @@ export function FarolExecutivo() {
         )}
       </Finding>
 
-      <Sec title="Farol por carreira × senioridade" sub="cada célula é uma decisão" />
+      <Sec
+        title="Farol por carreira × senioridade"
+        info="Cada célula é uma decisão. A demanda já é líquida: o que os projetos pedem menos quem sai de projeto e pode ser realocado. Vale o mês de maior demanda dentro dos 45 dias (demanda mensal é estoque; somar contaria a mesma pessoa duas vezes). Estagiário fica só na Visão do Pipe. Passe o mouse num card para ver o porquê."
+      />
       <div className="matrix" style={{ gridTemplateColumns: `minmax(130px, 0.8fr) repeat(${SENIORIDADES_FAROL.length}, minmax(0, 1.25fr)) minmax(0, 1fr)` }}>
         <div />
         {SENIORIDADES_FAROL.map((s) => (
           <div className="mx-th" key={s}>{s}</div>
         ))}
-        <div className="mx-th">Total do chapter<span>sem status, de propósito</span></div>
+        <div className="mx-th">Total do chapter<InfoTip text="Sem status de propósito: a soma das senioridades pode dizer pausar enquanto uma delas precisa contratar." /></div>
 
         {chapters.map((ch) => {
           const doCh = fj.filter((r) => r.chapter === ch);
@@ -88,10 +92,26 @@ export function FarolExecutivo() {
                 const g = gapTexto(r.gap_pct, r.demanda_liquida, r.oferta_ajustada, true);
                 const cobertura = r.demanda_liquida > 0 ? Math.min(1, r.oferta_ajustada / r.demanda_liquida) : 1;
                 return (
-                  <div className={`fm s-${r.farol_status}`} key={s}>
+                  <div
+                    className={`fm s-${r.farol_status}`}
+                    key={s}
+                    data-tip={tip({
+                      t: `${ch} · ${s}`,
+                      s: varios ? `Pico em ${rotuloMes(r.mes_pico)}` : undefined,
+                      rows: [
+                        { l: "Resource Request", v: fmt0(r.demanda_bruta_fte) },
+                        { l: "− Desalocados", v: fmt0(r.desalocado_fte) },
+                        { l: "—", v: "" },
+                        { l: "Demanda líquida", v: fmt0(r.demanda_liquida), c: "var(--pink)" },
+                        { l: "Oferta ajustada", v: fmt0(r.oferta_ajustada), c: "var(--bar)", bar: cobertura },
+                        ...(r.gap_pct != null && r.demanda_liquida >= 1 ? [{ l: "Gap", v: `${sinal(r.gap_pct)}%` }] : []),
+                      ],
+                      n: farolInsight(r.farol_status, r.gap_pct, r.demanda_liquida, r.oferta_ajustada),
+                    })}
+                  >
                     <div className="fm-foot">
                       <Pill status={r.farol_status} />
-                      <button className="link-btn" onClick={() => verNoPipe(ch, s)} title={`Abre a Visão do Pipe filtrada em ${ch} · ${s}`}>
+                      <button className="link-btn" onClick={() => verNoPipe(ch, s)} data-tip={tip({ n: `Abre a Visão do Pipe filtrada em ${ch} · ${s}` })}>
                         Ver no pipe ↗
                       </button>
                     </div>
@@ -100,15 +120,10 @@ export function FarolExecutivo() {
                       <span>Demanda <b>{fmt0(r.demanda_liquida)}</b></span>
                       <span>Oferta <b>{fmt0(r.oferta_ajustada)}</b></span>
                     </div>
-                    <div className="fm-bar" data-tip={`Oferta cobre ${fmt0(cobertura * 100)}% da demanda`}>
+                    <div className="fm-bar">
                       <i style={{ width: `${(Math.max(0, r.demanda_liquida) / maxRef) * 100}%`, opacity: 0.25 }} />
                       <i style={{ width: `${(r.oferta_ajustada / maxRef) * 100}%` }} />
                     </div>
-                    <div className="fm-orig">
-                      Resource Request {fmt0(r.demanda_bruta_fte)} − desalocados {fmt0(r.desalocado_fte)}
-                      {varios && <> · pico em {rotuloMes(r.mes_pico)}</>}
-                    </div>
-                    <div className="fm-why">{farolInsight(r.farol_status, r.gap_pct, r.demanda_liquida, r.oferta_ajustada)}</div>
                   </div>
                 );
               })}
@@ -123,14 +138,8 @@ export function FarolExecutivo() {
           );
         })}
       </div>
-      <p className="caption">
-        A demanda de cada célula já é líquida: o que os projetos pedem menos as pessoas que saem de projeto e podem ser
-        realocadas. Vale o mês de maior demanda dentro dos 45 dias, porque a demanda mensal é estoque de alocação e
-        somar os meses contaria a mesma pessoa duas vezes. Estagiário fica só na Visão do Pipe. &quot;Total do
-        chapter&quot; não tem status: a soma das senioridades pode dizer pausar enquanto uma delas precisa contratar.
-      </p>
 
-      <Sec title="Demanda × oferta por senioridade" sub={`pico dos ${J}`} />
+      <Sec title="Demanda × oferta por senioridade" info={`Mês de pico dos ${J}. Passe o mouse nas barras para ver a conta.`} />
       <div className="card">
         <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
           <Seg label="Chapter" value={chSel} options={chapters} onChange={setChSel} />
@@ -151,7 +160,7 @@ export function FarolExecutivo() {
                     <div
                       className="hb-bar"
                       style={{ width: `${(Math.max(0, r.demanda_liquida) / maxDet) * 85}%`, background: "var(--pink)" }}
-                      data-tip={`${r.senioridade}\nResource Request: ${fmt0(r.demanda_bruta_fte)}\n− Desalocados: ${fmt0(r.desalocado_fte)}\n= Demanda líquida: ${fmt0(r.demanda_liquida)} pessoas`}
+                      data-tip={tip({ t: `${chSel} · ${r.senioridade}`, s: "Demanda líquida", rows: [{ l: "Resource Request", v: fmt0(r.demanda_bruta_fte) }, { l: "− Desalocados", v: fmt0(r.desalocado_fte) }, { l: "—", v: "" }, { l: "Demanda líquida", v: `${fmt0(r.demanda_liquida)} pessoas`, c: "var(--pink)" }] })}
                     />
                     <span className="hb-val">{fmt0(r.demanda_liquida)}</span>
                   </div>
@@ -159,7 +168,7 @@ export function FarolExecutivo() {
                     <div
                       className="hb-bar"
                       style={{ width: `${(r.oferta_ajustada / maxDet) * 85}%` }}
-                      data-tip={`${r.senioridade}\nOferta ajustada: ${fmt0(r.oferta_ajustada)} pessoas`}
+                      data-tip={tip({ t: `${chSel} · ${r.senioridade}`, s: "Oferta ajustada", rows: [{ l: "Oferta ajustada", v: `${fmt0(r.oferta_ajustada)} pessoas`, c: "var(--bar)" }], n: "Candidatos do Envio do Case em diante, pesados pela chance de virar contratação em até 45 dias." })}
                     />
                     <span className="hb-val">{fmt0(r.oferta_ajustada)}</span>
                   </div>
@@ -174,24 +183,6 @@ export function FarolExecutivo() {
         )}
       </div>
 
-      {detalhe.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <Table
-            rowKey={(r) => r.senioridade}
-            rows={detalhe}
-            cols={[
-              { key: "s", label: "Senioridade", render: (r) => <b>{r.senioridade}</b> },
-              { key: "rr", label: "Resource Request", align: "r", help: "Quanto os projetos pedem de gente no mês de pico dos 45 dias (Artefactory; 1 FTE = 1 contratação).", render: (r) => fmt0(r.demanda_bruta_fte) },
-              { key: "d", label: "Desalocados", align: "r", help: "Pessoas que saem de projeto nesse mesmo mês e podem ser realocadas, em vez de contratar.", render: (r) => (r.desalocado_fte ? `−${fmt0(r.desalocado_fte)}` : "0") },
-              { key: "dl", label: "Demanda líquida", align: "r", help: "Resource Request menos desalocados: o que sobra para contratar.", render: (r) => fmt0(r.demanda_liquida) },
-              { key: "o", label: "Oferta ajustada", align: "r", help: "Candidatos vivos do Envio do Case em diante, cada um pesado pela chance de virar contratação em até 45 dias.", render: (r) => fmt0(r.oferta_ajustada) },
-              { key: "fs", label: "Falta / sobra", render: (r) => gapTexto(r.gap_pct, r.demanda_liquida, r.oferta_ajustada, true) },
-              { key: "g", label: "Gap %", align: "r", help: "(Demanda − Oferta) / Demanda. Só aparece com demanda de 1 pessoa ou mais.", render: (r) => (r.gap_pct != null && r.demanda_liquida >= 1 ? `${sinal(r.gap_pct)}%` : "—") },
-              { key: "st", label: "Status", help: "Diferença menor que 1 pessoa = manter. Demanda zero ou negativa = pausar. Senão: acima de +20% acelerar, abaixo de −10% pausar.", render: (r) => <Pill status={r.farol_status} label={STATUS_LABEL[r.farol_status]} /> },
-            ]}
-          />
-        </div>
-      )}
     </>
   );
 }

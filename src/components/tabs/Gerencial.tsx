@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useApp } from "../App";
-import { Finding, Kpi, Note, Sec, Tiles } from "../ui";
+import { CardHead, Finding, Kpi, Note, Sec, Tiles, tip } from "../ui";
 import { VBars } from "../charts";
 import {
   DIAS_CARGA_ATRASADA, SENIORIDADES_FAROL, conversaoAteContratacao, dataBR, fmt0, fmt1, janelaTxt, listaPt,
@@ -26,8 +26,7 @@ export function Gerencial() {
     const coberto = sum(fj, (r) => Math.min(r.oferta_ajustada, Math.max(0, r.demanda_liquida)));
     const ofertaTotal = sum(fj, (r) => r.oferta_ajustada);
     const dec = fj.filter((r) => SENIORIDADES_FAROL.includes(r.senioridade));
-    const cont = (s: string) => dec.filter((r) => r.farol_status === s).length;
-    const acel = dec.filter((r) => r.farol_status === "acelerar");
+    const cont = (s: string) => dec.filter((r) => r.farol_status === s);
     const crit = data.parados.filter((p) => p.status === "critico");
     const nCrit = sum(crit, (p) => p.n);
     const nAten = sum(data.parados.filter((p) => p.status === "atencao"), (p) => p.n);
@@ -46,7 +45,7 @@ export function Gerencial() {
       tempo: tempoMedioContratacao(data.taxas),
       aceite: taxaAceiteOferta(data.taxas),
       placar: { acelerar: cont("acelerar"), manter: cont("manter"), pausar: cont("pausar") },
-      acel, nCrit, nAten, topEtapa: top(porEtapa), topChEtapa: top(porChEtapa),
+      nCrit, nAten, topEtapa: top(porEtapa), topChEtapa: top(porChEtapa),
     };
   }, [data]);
 
@@ -60,62 +59,60 @@ export function Gerencial() {
     (new Date(`${data.hoje}T12:00:00Z`).getTime() - new Date(`${data.dataCarga}T12:00:00Z`).getTime()) / 86_400_000,
   );
 
+  const lista = (rs: { chapter: string; senioridade: string }[]) =>
+    rs.length ? rs.map((r) => `${r.chapter} ${r.senioridade}`).join(", ") : "nenhuma";
+
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Visão Gerencial</h1>
-          <p>
-            Foto do dia: quanto falta contratar nos {J}, quanto Pipeline Qualificado já existe para cobrir essa
-            necessidade, e quão rápido e eficiente está o funil.
-          </p>
+          <p>Quanto falta contratar, quanto o pipe cobre e quão rápido o funil anda.</p>
           <div className="meta-row">
-            <span className="meta-pill"><span className="dot" style={{ background: "var(--pink)" }} />Demanda: pico dos {J}, cobre {mesesTxt}</span>
-            <span className="meta-pill"><span className="dot" style={{ background: "var(--bar)" }} />Pipe: foto de {dataBR(data.dataCarga)}</span>
+            <span className="meta-pill" data-tip={tip({ t: "Janela de demanda", n: `Pico de necessidade dentro dos ${J}, cobrindo ${mesesTxt}.` })}>
+              <span className="dot" style={{ background: "var(--pink)" }} />Demanda: {J}
+            </span>
+            <span className="meta-pill" data-tip={tip({ t: "Pipe", n: "Foto do Greenhouse na data da última carga." })}>
+              <span className="dot" style={{ background: "var(--bar)" }} />Pipe: {dataBR(data.dataCarga)}
+            </span>
           </div>
         </div>
       </div>
 
       {diasCarga > DIAS_CARGA_ATRASADA && (
         <Note variant="critical">
-          ⚠️ <b>Os dados do Greenhouse são de {dataBR(data.dataCarga)}, há {diasCarga} dias.</b> Pipe, parados e
-          conversões mostram a situação daquele dia. Avise o time de Dados para conferir a carga.
+          ⚠️ <b>Dados do Greenhouse de {dataBR(data.dataCarga)}, há {diasCarga} dias.</b> Avise o time de Dados.
         </Note>
       )}
 
       <Finding>
-        Nos <b>{J}</b>: o Resource Request é de <b>{fmt0(v.pedido)} pessoas</b>, <b>{fmt0(v.desal)}</b> saem de projeto e
-        podem ser realocadas, e a necessidade líquida de contratação fica em <b>{fmt0(v.demanda)} pessoas</b>, com{" "}
-        <b>{fmt0(v.pipeQual)} candidatos</b> no Pipeline Qualificado. Entre {SENIORIDADES_FAROL.join(" e ")}:{" "}
-        <b>{v.acel.length} combinação(ões)</b> pedindo para acelerar
-        {v.acel.length > 0 && <> ({v.acel.map((r) => `${r.chapter} ${r.senioridade}`).join(", ")})</>} e{" "}
-        <b>{v.placar.pausar}</b> para pausar.
+        Faltam <b>{fmt0(v.demanda)} pessoas</b> nos {J}, com <b>{fmt0(v.pipeQual)} candidatos</b> no Pipeline
+        Qualificado. <b>{v.placar.acelerar.length}</b> combinação(ões) pedem para acelerar e{" "}
+        <b>{v.placar.pausar.length}</b> para pausar.
       </Finding>
 
-      <Sec eyebrow="Demanda × oferta" title="O pipe dá conta do que falta contratar?" />
+      <Sec eyebrow="Demanda × oferta" title="O pipe dá conta?" />
       <div className="grid g3">
         <Kpi
           label="Necessidade líquida"
           value={fmt0(v.demanda)}
           unit="pessoas"
-          note={<>Resource Request de <b>{fmt0(v.pedido)}</b> menos <b>{fmt0(v.desal)}</b> pessoas que saem de projeto e podem ser realocadas, somando todos os chapters.</>}
+          info="Resource Request menos as pessoas que saem de projeto e podem ser realocadas, somando todos os chapters."
+          detail={<><b>{fmt0(v.pedido)}</b> pedidas − <b>{fmt0(v.desal)}</b> realocáveis</>}
         />
         <Kpi
           label="Cobertura da necessidade"
           value={v.cobertura == null ? "—" : `${fmt0(v.cobertura)}%`}
-          note={
-            v.necPos > 0 ? (
-              <>O pipe deve gerar <b>{fmt0(v.coberto)}</b> das <b>{fmt0(v.necPos)}</b> contratações necessárias em até 45 dias, carreira por carreira. Oferta ajustada total: {fmt0(v.ofertaTotal)}.</>
-            ) : (
-              <>Sem necessidade positiva de contratação nos {J}.</>
-            )
-          }
+          progress={v.cobertura}
+          info={`Quanto da necessidade o pipe deve gerar em até 45 dias, carreira por carreira (sobra num chapter não cobre falta em outro). Oferta ajustada total: ${fmt0(v.ofertaTotal)}.`}
+          detail={v.necPos > 0 ? <><b>{fmt0(v.coberto)}</b> de <b>{fmt0(v.necPos)}</b> contratações</> : `Sem necessidade nos ${J}`}
         />
         <Kpi
           label="Pipeline Qualificado"
           value={fmt0(v.pipeQual)}
           unit="candidatos"
-          note="Entry e Senior da Entrevista Fit até a Oferta, nos chapters com demanda: quem já passou da triagem e do case."
+          info="Entry e Senior da Entrevista Fit até a Oferta, nos chapters com demanda: quem já passou da triagem e do case."
+          detail="Da Fit até a Oferta"
         />
       </div>
 
@@ -124,72 +121,79 @@ export function Gerencial() {
         <Kpi
           label="Entrevista Fit → contratação"
           value={v.fit.pct == null ? "—" : `${fmt1(v.fit.pct)}%`}
-          note={<><b>{fmt0(v.fit.contratados)}</b> contratações de <b>{fmt0(v.fit.base)}</b> candidaturas que chegaram à Fit, no histórico do Greenhouse.</>}
+          info="Contratações ÷ candidaturas que chegaram à Entrevista Fit, no histórico do Greenhouse."
+          detail={<><b>{fmt0(v.fit.contratados)}</b> de <b>{fmt0(v.fit.base)}</b> candidaturas</>}
         />
         <Kpi
           label="Tempo médio de contratação"
           value={v.tempo == null ? "—" : fmt0(v.tempo)}
           unit="dias"
-          note="Média de dias no pipe das pessoas contratadas, somando todos os chapters."
+          info="Média de dias no pipe das pessoas contratadas, somando todos os chapters."
         />
         <Kpi
           label="Aceite de oferta"
           value={v.aceite == null ? "—" : `${fmt0(v.aceite)}%`}
-          note="Contratados ÷ (contratados + reprovados na etapa Oferta)."
+          progress={v.aceite}
+          info="Contratados ÷ (contratados + reprovados na etapa Oferta)."
         />
       </div>
 
       <div className="grid g2" style={{ marginTop: 16 }}>
         <div className="card">
-          <div className="card-title">Placar do farol</div>
-          <p className="card-sub">Combinações carreira × senioridade ({SENIORIDADES_FAROL.join(" e ")}) com demanda cadastrada.</p>
+          <CardHead
+            title="Placar do farol"
+            info={`Combinações carreira × senioridade (${SENIORIDADES_FAROL.join(" e ")}) com demanda cadastrada.`}
+          />
           <Tiles
-            items={[
-              { n: v.placar.acelerar, label: "acelerar", status: "acelerar" },
-              { n: v.placar.manter, label: "manter", status: "manter" },
-              { n: v.placar.pausar, label: "pausar", status: "pausar" },
-            ]}
+            items={(["acelerar", "manter", "pausar"] as const).map((s) => ({
+              n: v.placar[s].length,
+              label: s,
+              status: s,
+              tip: tip({ t: s[0].toUpperCase() + s.slice(1), n: lista(v.placar[s]) }),
+            }))}
           />
         </div>
         <div className="card">
-          <div className="card-title">Onde agir agora</div>
-          <p className="card-sub">Candidatos acima da meta da etapa, do Envio do Case à Oferta.</p>
+          <CardHead
+            title="Onde agir agora"
+            info={
+              v.nCrit && v.topEtapa
+                ? `Candidatos acima da meta da etapa, do Envio do Case à Oferta. Etapa com mais gente em crítico: ${v.topEtapa[0]} (${fmt0(v.topEtapa[1])}). Maior concentração: ${v.topChEtapa?.[0]} (${fmt0(v.topChEtapa?.[1] ?? 0)}).`
+                : "Candidatos acima da meta da etapa, do Envio do Case à Oferta."
+            }
+          />
           <Tiles
             items={[
-              { n: fmt0(v.nCrit), label: "em crítico", status: "critico" },
-              { n: fmt0(v.nAten), label: "em atenção", status: "atencao" },
+              { n: fmt0(v.nCrit), label: "em crítico", status: "critico", tip: tip({ t: "Crítico", n: "Mais de 5 dias acima da meta da etapa." }) },
+              { n: fmt0(v.nAten), label: "em atenção", status: "atencao", tip: tip({ t: "Atenção", n: "Acima da meta, por até 5 dias." }) },
             ]}
           />
-          <p className="caption">
-            {v.nCrit && v.topEtapa ? (
-              <>Etapa com mais gente em crítico: <b>{v.topEtapa[0]}</b> ({fmt0(v.topEtapa[1])}). Maior concentração: <b>{v.topChEtapa?.[0]}</b> ({fmt0(v.topChEtapa?.[1] ?? 0)}).</>
-            ) : (
-              "Ninguém acima da meta da etapa."
-            )}
-          </p>
         </div>
       </div>
 
-      <Sec eyebrow="Necessidade mês a mês" title="A demanda está subindo ou caindo?" />
+      <Sec
+        eyebrow="Mês a mês"
+        title="A demanda está subindo ou caindo?"
+        info="Necessidade líquida (Resource Request − desalocados), Entry e Senior, todos os chapters. Rosa: dentro dos 45 dias; azul: depois, só tendência. Negativo = mais gente saindo de projeto do que pedidos novos."
+      />
       <div className="card">
-        <div className="legend-row">
-          <span><i style={{ background: "var(--pink)" }} />Dentro dos 45 dias</span>
-          <span><i style={{ background: "var(--bar)" }} />Depois, só tendência</span>
-        </div>
         <VBars
           height={200}
-          items={nec.map(({ mes, v: val }) => ({
-            label: rotuloMes(mes),
-            value: val,
-            text: fmt0(val),
-            color: data.mesesJanela.includes(mes) ? "var(--pink)" : "var(--bar)",
-            tip: `${rotuloMes(mes)}\nNecessidade líquida: ${fmt0(val)} pessoas`,
-          }))}
+          items={nec.map(({ mes, v: val }) => {
+            const dentro = data.mesesJanela.includes(mes);
+            return {
+              label: rotuloMes(mes),
+              value: val,
+              text: fmt0(val),
+              color: dentro ? "var(--pink)" : "var(--bar)",
+              tip: tip({
+                t: rotuloMes(mes),
+                s: dentro ? "Dentro da janela de 45 dias" : "Tendência",
+                rows: [{ l: "Necessidade líquida", v: `${fmt0(val)} pessoas`, c: dentro ? "var(--pink)" : "var(--bar)" }],
+              }),
+            };
+          })}
         />
-        <p className="caption">
-          Resource Request menos desalocados, somando todos os chapters (Entry e Senior). Valor negativo = mais gente
-          saindo de projeto do que pedidos novos.
-        </p>
       </div>
     </>
   );
