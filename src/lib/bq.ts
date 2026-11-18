@@ -4,9 +4,10 @@ import { BigQuery } from "@google-cloud/bigquery";
 /**
  * Cliente BigQuery do servidor. Credencial, nesta ordem:
  *  1. GCP_SERVICE_ACCOUNT_JSON: o JSON da service account (cru ou em
- *     base64). É o que funciona na Vercel, onde não há gcloud.
- *  2. Nada definido: a credencial de aplicação da máquina
- *     (`gcloud auth application-default login`), para rodar local.
+ *     base64). Só para hospedagem fora do GCP (ex.: Vercel).
+ *  2. Nada definido: Application Default Credentials. No Cloud Run é a
+ *     service account anexada ao serviço, sem chave nenhuma (o caminho de
+ *     produção); na máquina, `gcloud auth application-default login`.
  *
  * A conta precisa de leitura no DATASET inteiro (greenhouse_dev), não só
  * nas views do farol: a allowlist de acesso mora no mesmo dataset.

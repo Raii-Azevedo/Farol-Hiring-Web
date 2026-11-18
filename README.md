@@ -1,16 +1,17 @@
 # 🚦 Farol de Hiring · versão web
 
-Versão web do [Farol de Hiring](https://github.com/Raii-Azevedo/Farol-Hiring), feita para rodar na **Vercel**.
+Versão web do [Farol de Hiring](https://github.com/Raii-Azevedo/Farol-Hiring). Produção roda no **Google Cloud Run**
+(sem chave de service account); a Vercel continua possível como alternativa.
 Mesmas regras, mesmas views do BigQuery e mesma allowlist do app Streamlit, com outra arquitetura:
 
 | | Streamlit | Web (este repo) |
 |---|---|---|
 | Agregação | baixa ~69 mil candidaturas e agrupa em pandas | o **BigQuery** agrega; o servidor recebe centenas de linhas |
 | Interação | cada clique roda o script inteiro no servidor | filtros, abas e detalhes rodam **no navegador**, sem ida ao servidor |
-| Cache | `st.cache_data` por processo | cache de dados da Vercel, 30 min, compartilhado entre acessos |
+| Cache | `st.cache_data` por processo | cache de dados do Next, 30 min, compartilhado entre acessos |
 | Gráficos | Plotly (~3 MB de JS) | HTML/CSS próprios; **~121 kB** de JS na primeira carga |
 | Nome de candidato | vem junto com o dataset inteiro | só sai do servidor quando alguém abre um detalhe (`/api/pessoas`) |
-| Hospedagem | servidor sempre ligado | serverless (Vercel) |
+| Hospedagem | servidor sempre ligado | container no Cloud Run, escala a zero |
 
 ## Como rodar local
 
@@ -22,7 +23,7 @@ npm run dev                              # http://localhost:3000
 
 Sem `AUTH_GOOGLE_ID` o app abre em **modo aberto** com um aviso na tela. Isso só vale em
 `npm run dev`: em produção (`npm run build && npm start`, ou na Vercel) sem login configurado,
-o app **bloqueia o acesso**. É diferente do Streamlit de propósito, porque na Vercel o link é público.
+o app **bloqueia o acesso**. É diferente do Streamlit de propósito, porque o link de produção é público.
 
 ## Estrutura
 
@@ -33,7 +34,7 @@ src/
     model.ts                    regras do farol, SLA, conversões e formatação (roda no servidor e no navegador)
     queries.ts                  SQL das agregações (o que era o load_data() em pandas)
     data.ts                     monta o payload do dashboard; cache de 30 min
-    bq.ts                       cliente BigQuery (service account ou credencial da máquina)
+    bq.ts                       cliente BigQuery (credencial do Cloud Run, da máquina ou JSON)
     allowlist.ts                leitura da greenhouse_dash_access, cache de 60 s por e-mail
     acesso.ts                   gate de toda página e API (fail closed)
   app/
@@ -50,7 +51,82 @@ As regras de negócio estão em `lib/model.ts` e `lib/data.ts`, portadas 1:1 do 
 regra mudar no Streamlit, mude aqui também** (e na aba "Como ler"). A paridade foi conferida com os
 dados reais: as células do farol, os KPIs da Visão Gerencial, os parados e os recortes filtrados batem.
 
-## Deploy na Vercel
+## Deploy no Google Cloud Run (produção)
+
+Por que Cloud Run: a política da organização **não permite gerar chave JSON** de service account. No
+Cloud Run a service account fica anexada ao serviço e o app pega a credencial sozinho (ADC), sem
+nenhuma chave. Nada muda no código entre local e produção.
+
+Arquivos do deploy: `Dockerfile` (build do Next em modo standalone, roda como usuário sem
+privilégio), `.dockerignore` e `.gcloudignore` (segredos e `node_modules` nunca sobem).
+
+Região: **`us-central1`**, a mesma do dataset `greenhouse_dev`.
+
+### 1. Uma vez: service account do app (sem chave)
+
+```bash
+PROJETO=br-in-dataplatform
+SA=farol-hiring-web@$PROJETO.iam.gserviceaccount.com
+
+gcloud iam service-accounts create farol-hiring-web --project=$PROJETO \
+  --display-name="Farol de Hiring (Cloud Run)"
+
+# leitura do dataset inteiro (a allowlist mora nele) e permissão de rodar query
+bq add-iam-policy-binding --member=serviceAccount:$SA --role=roles/bigquery.dataViewer $PROJETO:greenhouse_dev
+gcloud projects add-iam-policy-binding $PROJETO --member=serviceAccount:$SA --role=roles/bigquery.jobUser
+# as tabelas de demanda são externas, lidas do bucket
+gcloud storage buckets add-iam-policy-binding gs://idp-bucket-dev --member=serviceAccount:$SA --role=roles/storage.objectViewer
+```
+
+### 2. Uma vez: segredos do login no Secret Manager
+
+```bash
+printf '%s' '<client secret do OAuth>' | gcloud secrets create farol-auth-google-secret --data-file=- --project=$PROJETO
+openssl rand -base64 32 | tr -d '\n' | gcloud secrets create farol-auth-secret --data-file=- --project=$PROJETO
+
+for s in farol-auth-google-secret farol-auth-secret; do
+  gcloud secrets add-iam-policy-binding $s --project=$PROJETO \
+    --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor
+done
+```
+
+O client OAuth (Console → APIs e serviços → Credenciais → ID do cliente OAuth, tipo "Aplicativo
+da Web", tela de consentimento **Interna**) não é chave de service account: a política não o bloqueia.
+
+### 3. Deploy (e a cada nova versão)
+
+```bash
+gcloud run deploy farol-hiring --source . --project=$PROJETO --region=us-central1 \
+  --service-account=$SA --allow-unauthenticated \
+  --memory=1Gi --cpu=1 --min-instances=0 --max-instances=3 \
+  --set-env-vars=AUTH_GOOGLE_ID=<client id>,AUTH_GOOGLE_HD=artefact.com \
+  --set-secrets=AUTH_GOOGLE_SECRET=farol-auth-google-secret:latest,AUTH_SECRET=farol-auth-secret:latest
+```
+
+O `--source .` manda o código para o Cloud Build, que usa o `Dockerfile` e publica a imagem no
+Artifact Registry. No fim aparece a URL `https://farol-hiring-<hash>.us-central1.run.app`.
+
+### 4. Uma vez: redirect do login
+
+No client OAuth, adicione o redirect URI `https://<url-do-cloud-run>/api/auth/callback/google`
+(e `http://localhost:3000/api/auth/callback/google` para testar local).
+
+### Observações
+
+- **`--allow-unauthenticated`** deixa a URL acessível na internet; quem barra é o login Google + a
+  allowlist do app (fail closed). Se a organização bloquear `allUsers` (política *Domain Restricted
+  Sharing*), troque por `--no-allow-unauthenticated` e ligue o **IAP** no serviço, liberando
+  `domain:artefact.com`; o login do app continua valendo por cima.
+- **Cold start**: com `--min-instances=0` o serviço dorme sem uso e o primeiro acesso demora alguns
+  segundos a mais. `--min-instances=1` evita isso, com custo de uma instância sempre ligada.
+- **Deploy automático** a cada push: Cloud Build → Gatilhos → conectar o repositório GitHub, com
+  "Dockerfile" e o mesmo comando de deploy, ou rodar o passo 3 manualmente.
+- O cache de 30 min é por instância (memória/disco do container), o que basta para este volume.
+
+## Deploy na Vercel (alternativa)
+
+Só serve se houver uma chave de service account (`GCP_SERVICE_ACCOUNT_JSON`), o que hoje a
+política da organização não permite.
 
 1. Suba este repositório no GitHub e importe em [vercel.com/new](https://vercel.com/new).
    Framework: Next.js (detectado sozinho). Não precisa mudar build nem output.
@@ -66,7 +142,7 @@ dados reais: as células do farol, os KPIs da Visão Gerencial, os parados e os 
 
 ### Service account
 
-Mesmas roles do Streamlit (comandos em `config_publicacao_exemplo.txt` do repo original):
+Mesmas roles do Streamlit, para qualquer hospedagem (comandos do Cloud Run acima):
 
 - `roles/bigquery.dataViewer` no **dataset** `greenhouse_dev` (não recortado nas views: a allowlist mora lá);
 - `roles/bigquery.jobUser` no projeto `br-in-dataplatform`;
