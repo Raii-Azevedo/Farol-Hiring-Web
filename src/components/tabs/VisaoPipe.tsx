@@ -6,16 +6,9 @@ import { CardHead, Drawer, Finding, InfoTip, Kpi, Note, Pill, Sec, Select, Tiles
 import { Funnel, HBars, Heatmap } from "../charts";
 import {
   ETAPA_CURTA, STAGES_ORDER, TODOS, conversaoAteContratacao, dataBR, fmt0, fmt1, ordenarSenioridades, recorte,
-  resumoPipe, sinal, suTempoMedioBanco, sum, taxaAceiteOferta, taxaAceiteSys, type PipeResumo, type StatusSla,
+  resumoPipe, suTempoMedioBanco, sum, taxaAceiteOferta, taxaAceiteSys, type StatusSla,
 } from "@/lib/model";
 import type { Pessoa } from "@/app/api/pessoas/route";
-
-interface LinhaSla {
-  chapter: string | null; // null = recorte inteiro
-  rotulo: string;
-  cel: Map<string, PipeResumo>;
-  su: number | null;
-}
 
 type Detalhe =
   | { tipo: "su"; chapter: string | null }
@@ -23,7 +16,6 @@ type Detalhe =
   | { tipo: "pessoas"; etapa: string; status: StatusSla; vaga: string };
 
 const STATUS_PT: Record<string, string> = { critico: "Crítico", atencao: "Atenção", ok: "OK" };
-const COR_SLA: Record<string, string> = { critico: "var(--red)", atencao: "var(--amber)", ok: "var(--green)" };
 
 export function VisaoPipe() {
   const { data, pipeChapter: ch, pipeSen: sen, setPipe } = useApp();
@@ -73,23 +65,6 @@ export function VisaoPipe() {
   const sla = porChEtapa.filter((r) => r.excesso_dias != null);
   const pior = [...sla].sort((a, b) => (b.excesso_dias ?? 0) - (a.excesso_dias ?? 0))[0];
   const nSla = (s: string) => sla.filter((r) => r.status_sla === s).length;
-
-  // Matriz de SLA: uma linha por chapter (+ o recorte inteiro, quando há
-  // mais de um), uma coluna por etapa e a espera no See You Soon no fim.
-  const etapasSla = STAGES_ORDER.filter((e) => e !== "Contratação" && porChEtapa.some((r) => r.etapa === e && r.tempo_medio_dias != null));
-  const metaEtapa = new Map(porEtapa.filter((r) => r.meta_sla_dias != null).map((r) => [r.etapa!, r.meta_sla_dias!]));
-  const chSla = [...new Set(porChEtapa.map((r) => r.chapter!))].sort();
-  const linhasSla: LinhaSla[] = [
-    ...(chSla.length > 1
-      ? [{ chapter: null, rotulo: "Recorte inteiro", cel: new Map(porEtapa.map((r) => [r.etapa!, r])), su: k.banco }]
-      : []),
-    ...chSla.map((c) => ({
-      chapter: c,
-      rotulo: c,
-      cel: new Map(porChEtapa.filter((r) => r.chapter === c).map((r) => [r.etapa!, r])),
-      su: suTempoMedioBanco(data.suBanco, c, sen),
-    })),
-  ];
 
   let notaFit = "Ninguém chegou à Entrevista Fit neste recorte.";
   if (k.fit.pct != null) {
@@ -205,28 +180,7 @@ export function VisaoPipe() {
         </Finding>
       </div>
 
-      <Sec
-        eyebrow="1 · Onde trava"
-        title="Tempo em cada etapa contra a meta"
-        info="Dias corridos em cada etapa (média do Greenhouse por vaga, ponderada pelas candidaturas) contra a meta. Atenção: acima da meta · Crítico: mais de 5 dias acima. Uma Oferta longa pode ser negociação demorada ou registro não atualizado. Clique na coluna See You Soon para ver quem está no banco."
-      />
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
-          <div className="legend-row" style={{ margin: 0 }}>
-            <span><i style={{ background: "var(--red)" }} />{nSla("critico")} crítico</span>
-            <span><i style={{ background: "var(--amber)" }} />{nSla("atencao")} atenção</span>
-            <span><i style={{ background: "var(--green)" }} />{nSla("ok")} dentro da meta</span>
-          </div>
-        </div>
-        <SlaMatriz
-          linhas={linhasSla}
-          etapas={etapasSla}
-          metaEtapa={metaEtapa}
-          onSu={(chapter) => setDet({ tipo: "su", chapter })}
-        />
-      </div>
-
-      <Sec eyebrow="2 · Por que trava" title="Volume e conversão em cada etapa" />
+      <Sec eyebrow="1 · Por que trava" title="Volume e conversão em cada etapa" />
       <div className="grid g2">
         <div className="card">
           <CardHead
@@ -253,7 +207,7 @@ export function VisaoPipe() {
         </div>
       </div>
 
-      <Sec eyebrow="3 · Onde está o volume" title="Candidatos vivos por etapa" />
+      <Sec eyebrow="2 · Onde está o volume" title="Candidatos vivos por etapa" />
       <div className="card">
         <CardHead
           title="Candidatos por etapa × chapter"
@@ -278,7 +232,7 @@ export function VisaoPipe() {
       </div>
 
       <Sec
-        eyebrow="4 · Quem está travado"
+        eyebrow="3 · Quem está travado"
         title="Candidatos parados por etapa"
         info={`Dias na etapa até a carga de ${dc}. Clique num número para ver as vagas e quem está parado. Antes de agir, confira no Greenhouse: etapa desatualizada (ex.: pessoa já contratada ainda em Conversa Final) aparece aqui como parada.`}
       />
@@ -383,81 +337,6 @@ function HeatCandidatos({
         return tip(d);
       }}
     />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Matriz de SLA: chapter × etapa, célula = tempo médio na cor do status
-// ---------------------------------------------------------------------------
-function SlaMatriz({
-  linhas, etapas, metaEtapa, onSu,
-}: {
-  linhas: LinhaSla[];
-  etapas: string[];
-  metaEtapa: Map<string, number>;
-  onSu: (chapter: string | null) => void;
-}) {
-  const temSu = linhas.some((l) => l.su != null);
-  return (
-    <div className="sla" style={{ gridTemplateColumns: `minmax(150px, 1.3fr) repeat(${etapas.length}, minmax(68px, 1fr))${temSu ? " minmax(84px, 1fr)" : ""}` }}>
-      <div />
-      {etapas.map((e) => (
-        <div className="sla-h" key={e}>
-          {ETAPA_CURTA[e] ?? e}
-          <span>{metaEtapa.has(e) ? `meta ${fmt0(metaEtapa.get(e)!)}d` : " "}</span>
-        </div>
-      ))}
-      {temSu && (
-        <div className="sla-h sla-su-h">
-          See You Soon<span>espera</span>
-        </div>
-      )}
-      {linhas.map((l) => (
-        <Fragment key={l.rotulo}>
-          <div className={`sla-r${l.chapter == null ? " sla-total" : ""}`}>{l.rotulo}</div>
-          {etapas.map((e) => {
-            const c = l.cel.get(e);
-            if (c?.tempo_medio_dias == null) return <div className="sla-c sla-vazio" key={e}>—</div>;
-            const st = c.status_sla;
-            return (
-              <div
-                key={e}
-                className={`sla-c${st ? ` s-${st}` : ""}${l.chapter == null ? " sla-total" : ""}`}
-data-tip={tip({
-                  t: l.rotulo,
-                  s: st ? `${e} · ${STATUS_PT[st]}` : e,
-                  rows: [
-                    {
-                      l: "Tempo médio",
-                      v: `${fmt0(c.tempo_medio_dias)} dias`,
-                      c: COR_SLA[st ?? ""] ?? "var(--bar)",
-                      bar: c.meta_sla_dias ? Math.min(1, c.tempo_medio_dias / c.meta_sla_dias) : undefined,
-                    },
-                    ...(c.meta_sla_dias != null
-                      ? [{ l: "Meta", v: `${fmt0(c.meta_sla_dias)} dias` }, { l: "Excesso", v: `${sinal(c.excesso_dias ?? 0)} dias` }]
-                      : []),
-                  ],
-                })}
-              >
-                {fmt0(c.tempo_medio_dias)}d
-              </div>
-            );
-          })}
-          {temSu &&
-            (l.su == null ? (
-              <div className="sla-c sla-vazio">—</div>
-            ) : (
-              <button
-                className={`sla-c sla-su${l.chapter == null ? " sla-total" : ""}`}
-                onClick={() => onSu(l.chapter)}
-                data-tip={tip({ t: l.rotulo, s: "See You Soon", rows: [{ l: "Espera média no banco", v: `${fmt0(l.su)} dias`, c: "var(--pink)" }], n: "Clique para ver quem está no banco" })}
-              >
-                {fmt0(l.su)}d
-              </button>
-            ))}
-        </Fragment>
-      ))}
-    </div>
   );
 }
 
