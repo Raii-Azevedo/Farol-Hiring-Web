@@ -80,6 +80,8 @@ gcloud storage buckets add-iam-policy-binding gs://idp-bucket-dev --member=servi
 
 ### 2. Uma vez: segredos do login no Secret Manager
 
+Passo a passo detalhado (de onde vem cada valor, Console e erros comuns): [docs/configurar-login-google.md](docs/configurar-login-google.md).
+
 ```bash
 printf '%s' '<client secret do OAuth>' | gcloud secrets create farol-auth-google-secret --data-file=- --project=$PROJETO
 openssl rand -base64 32 | tr -d '\n' | gcloud secrets create farol-auth-secret --data-file=- --project=$PROJETO
