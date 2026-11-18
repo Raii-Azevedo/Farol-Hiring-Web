@@ -62,9 +62,6 @@ export function VisaoPipe() {
     );
   }
 
-  const sla = porChEtapa.filter((r) => r.excesso_dias != null);
-  const pior = [...sla].sort((a, b) => (b.excesso_dias ?? 0) - (a.excesso_dias ?? 0))[0];
-  const nSla = (s: string) => sla.filter((r) => r.status_sla === s).length;
 
   let notaFit = "Ninguém chegou à Entrevista Fit neste recorte.";
   if (k.fit.pct != null) {
@@ -119,6 +116,10 @@ export function VisaoPipe() {
   for (const p of data.parados) if (p.meta_sla_dias != null) metas.set(p.etapa, Math.max(metas.get(p.etapa) ?? 0, p.meta_sla_dias));
   const contagem = (e: string, s: string) => sum(parados.filter((p) => p.etapa === e && p.status === s), (p) => p.n);
   const nPar = (s: string) => sum(parados.filter((p) => p.status === s), (p) => p.n);
+  // etapa com mais gente em crítico, para a frase de destaque
+  const topCrit = etapasParados
+    .map((e) => ({ e, n: contagem(e, "critico") }))
+    .sort((a, b) => b.n - a.n)[0];
 
   return (
     <>
@@ -169,13 +170,13 @@ export function VisaoPipe() {
       <div style={{ marginTop: 16 }}>
         <Finding>
           {rotulo.charAt(0).toUpperCase() + rotulo.slice(1)}:{" "}
-          {nSla("critico") && pior ? (
+          {nPar("critico") > 0 && topCrit?.n ? (
             <>
-              <b>{nSla("critico")} etapa(s) em SLA crítico</b>. A pior é <b>{pior.etapa}</b> em {pior.chapter} (
-              {fmt0(pior.tempo_medio_dias!)}d vs. meta de {fmt0(pior.meta_sla_dias!)}d).
+              <b>{fmt0(nPar("critico"))} candidato(s) em crítico</b> e {fmt0(nPar("atencao"))} em atenção. A etapa com
+              mais gente em crítico é <b>{topCrit.e}</b> ({fmt0(topCrit.n)}).
             </>
           ) : (
-            "nenhuma etapa em SLA crítico."
+            "nenhum candidato em crítico."
           )}
         </Finding>
       </div>
