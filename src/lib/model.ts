@@ -78,6 +78,8 @@ export interface PipeNivel {
   etapa: string;
   ordem_etapa: number;
   candidatos: number;
+  /** candidaturas com etapa atual = esta, em qualquer status */
+  total: number;
   conv_soma: number;
   conv_n: number;
   tempo_soma: number;

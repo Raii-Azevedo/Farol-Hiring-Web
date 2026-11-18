@@ -42,6 +42,9 @@ export const SQL_PIPE_NIVEL = () => `
     CAST(ordem_etapa AS FLOAT64) AS ordem_etapa,
     -- "Contratação" não é etapa viva: quem está lá entra pelo flag_contratado
     CAST(SUM(IF(etapa = 'Contratação', flag_contratado, flag_ativo)) AS FLOAT64) AS candidatos,
+    -- todas as candidaturas cuja etapa atual é esta (vivas, reprovadas, contratadas):
+    -- base da conversão por contagem ("chegaram" = etapa atual nesta ou adiante)
+    CAST(COUNT(*) AS FLOAT64)                              AS total,
     CAST(COALESCE(SUM(conversao_etapa_pct), 0) AS FLOAT64) AS conv_soma,
     CAST(COUNT(conversao_etapa_pct) AS FLOAT64)            AS conv_n,
     CAST(COALESCE(SUM(tempo_medio_etapa), 0) AS FLOAT64)   AS tempo_soma,

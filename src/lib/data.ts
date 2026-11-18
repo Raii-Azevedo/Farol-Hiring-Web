@@ -143,7 +143,7 @@ async function carregar(): Promise<Dashboard> {
 /** Mesmo TTL do st.cache_data(ttl=1800) do Streamlit. O cache vale para
  * todo mundo (o payload não tem nome de candidato), então só o primeiro
  * acesso a cada 30 min paga a ida ao BigQuery. */
-export const loadDashboard = unstable_cache(carregar, ["farol-dashboard-v2"], {
+export const loadDashboard = unstable_cache(carregar, ["farol-dashboard-v3"], {
   revalidate: 1800,
   tags: ["farol"],
 });

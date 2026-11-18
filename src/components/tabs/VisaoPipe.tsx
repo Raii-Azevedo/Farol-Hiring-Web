@@ -74,13 +74,26 @@ export function VisaoPipe() {
   const funil = porEtapa.filter((r) => (r.ordem_etapa ?? 0) >= 2 && r.etapa !== "Contratação");
   const nCv = porEtapa.find((r) => r.etapa === "Avaliação de currículo")?.candidatos ?? 0;
 
-  // O Greenhouse registra a conversão na etapa DESTINO: "avança a partir
-  // desta etapa" é a conversão da etapa seguinte.
-  const convPor = new Map(porEtapa.map((r) => [r.etapa, r.conversao_pct]));
-  const etapas = STAGES_ORDER.filter((e) => convPor.has(e));
-  const conv = etapas.slice(0, -1)
-    .map((o, i) => ({ o, d: etapas[i + 1], v: convPor.get(etapas[i + 1]) }))
-    .filter((x): x is { o: string; d: string; v: number } => x.v != null);
+  // Conversão por contagem de pessoas, no recorte: "chegaram" a uma etapa
+  // = candidaturas cuja etapa atual é ela ou alguma adiante; "foram adiante"
+  // = as que estão além dela. Quem ainda está na etapa entra na base (vai
+  // no tooltip), igual às conversões dos cards do topo.
+  const totalPor = new Map<string, number>();
+  const ativosPor = new Map<string, number>();
+  for (const r of nivel) {
+    totalPor.set(r.etapa, (totalPor.get(r.etapa) ?? 0) + r.total);
+    ativosPor.set(r.etapa, (ativosPor.get(r.etapa) ?? 0) + r.candidatos);
+  }
+  const ordemFunil = STAGES_ORDER.filter((e) => totalPor.has(e));
+  const chegaram = (i: number) => sum(ordemFunil.slice(i), (e) => totalPor.get(e) ?? 0);
+  const conv = ordemFunil
+    .slice(0, -1)
+    .map((o, i) => {
+      const n = chegaram(i);
+      const adiante = chegaram(i + 1);
+      return { o, d: ordemFunil[i + 1], n, adiante, ainda: ativosPor.get(o) ?? 0, v: n ? (adiante / n) * 100 : 0 };
+    })
+    .filter((x) => x.n > 0 && x.o !== "Oferta");
 
   const etapasHeat = STAGES_ORDER.filter((e) => e !== "Avaliação de currículo" && e !== "Contratação");
   const heatIdx = new Map(porChEtapa.map((r) => [`${r.chapter}|${r.etapa}`, r.candidatos]));
@@ -193,7 +206,7 @@ export function VisaoPipe() {
         <div className="card">
           <CardHead
             title="Quanto avança de cada etapa"
-            info="De cada 100 que estavam na etapa, quantos foram para a seguinte. Taxa do Greenhouse, teto de 100% por vaga."
+            info="De quem chegou à etapa, quantos foram adiante (estão hoje numa etapa seguinte ou foram contratados). Conta pessoas no recorte; quem ainda está na etapa entra na base."
           />
           <HBars
             max={100}
@@ -201,8 +214,20 @@ export function VisaoPipe() {
               key: x.o,
               label: `${x.o} → ${x.d}`,
               value: x.v,
-              text: `${fmt0(x.v)}%`,
-              tip: tip({ t: x.o, s: `→ ${x.d}`, rows: [{ l: "Avançou", v: `${fmt0(x.v)}%`, bar: x.v / 100, c: "var(--bar)" }] }),
+              text: x.v < 10 ? `${fmt1(x.v)}%` : `${fmt0(x.v)}%`,
+              tip: tip({
+                t: x.o,
+                s: `→ ${x.d}`,
+                rows: [
+                  { l: "Chegaram à etapa", v: fmt0(x.n) },
+                  { l: "Foram adiante", v: fmt0(x.adiante), c: "var(--bar)" },
+                  { l: "—", v: "" },
+                  { l: "Conversão", v: x.v < 10 ? `${fmt1(x.v)}%` : `${fmt0(x.v)}%`, bar: x.v / 100, c: "var(--bar)" },
+                ],
+                n: x.ainda
+                  ? `${fmt0(x.adiante)} de ${fmt0(x.n)} pessoas avançaram. ${fmt0(x.ainda)} ainda estão na etapa, aguardando decisão.`
+                  : `${fmt0(x.adiante)} de ${fmt0(x.n)} pessoas avançaram.`,
+              }),
             }))}
           />
         </div>
