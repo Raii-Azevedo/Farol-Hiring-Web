@@ -63,8 +63,8 @@ export function Gate(props: Props) {
                     <>Sua conta foi autenticada pelo Google, mas</>
                   )}{" "}
                   não está na lista de usuários autorizados do Farol de Hiring. Se você deveria ter acesso, peça ao
-                  time de People &amp; Talent para incluir seu e-mail na allowlist (<code>greenhouse_dash_access</code>,
-                  mantida pelo time de Dados).
+                  time de People &amp; Talent para incluir seu e-mail na allowlist,
+                  mantida pelo time de Dados.
                 </p>
               </div>
               <form action={sair}>
